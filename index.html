@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#4C662B">
+  <link rel="manifest" href="manifest.json">
+  <title>Urenregistratie</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+  <link rel="stylesheet" href="theme.css">
+  <script>
+    (function() {
+      try {
+        const s = localStorage.getItem('bold700:settings');
+        let useDark = false;
+        if (s) {
+          const parsed = JSON.parse(s);
+          if (typeof parsed.darkMode === 'boolean') {
+            useDark = parsed.darkMode;
+          } else {
+            useDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          }
+        } else {
+          useDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        if (useDark) {
+          document.documentElement.setAttribute('data-color-scheme', 'dark');
+          document.documentElement.classList.add('dark');
+        }
+      } catch (_) {}
+    })();
+  </script>
+  <script type="importmap">
+    {
+      "imports": {
+        "@material/web/": "https://esm.run/@material/web/"
+      }
+    }
+  </script>
+  <script type="module">
+    import '@material/web/all.js';
+    import { styles as typescaleStyles } from '@material/web/typography/md-typescale-styles.js';
+    document.adoptedStyleSheets.push(typescaleStyles.styleSheet);
+  </script>
+  <style>
+    html { scrollbar-gutter: stable; }
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: var(--md-sys-color-background);
+      color: var(--md-sys-color-on-background);
+      margin: 0;
+      padding: 0;
+      padding-bottom: 5rem;
+    }
+    .app-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--md-sys-color-background);
+      min-height: 49px;
+      box-sizing: border-box;
+      width: 100%;
+    }
+    @media (max-width: 600px) {
+      .app-header { padding: 12px 16px; }
+    }
+    .app-header md-icon-button { flex-shrink: 0; }
+    .header-labels {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .header-title {
+      color: var(--md-sys-color-primary);
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      font-size: 13px;
+    }
+    .header-tab-label {
+      color: var(--md-sys-color-on-surface-variant);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .header-timer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px;
+      margin-left: auto;
+      margin-right: 12px;
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .header-timer:hover { opacity: 0.9; }
+    .header-timer .header-timer-time { font-variant-numeric: tabular-nums; }
+    .menu-dropdown {
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height 0.25s ease;
+      background: var(--md-sys-color-surface-container);
+      position: fixed;
+      top: 49px;
+      left: 0;
+      right: 0;
+      width: 100%;
+      z-index: 3;
+      box-sizing: border-box;
+    }
+    .menu-dropdown.open {
+      max-height: 400px;
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+      padding: 16px 0 0 0;
+    }
+    .menu-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      background: transparent;
+    }
+    .menu-overlay.visible {
+      display: block;
+    }
+    body:has(md-dialog[open]) .app-header {
+      z-index: 0;
+    }
+    .menu-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 24px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      background: none;
+      border: none;
+      border-left: 3px solid transparent;
+      color: var(--md-sys-color-on-surface-variant);
+      cursor: pointer;
+      transition: all 0.1s;
+      text-align: left;
+      width: 100%;
+      font-family: inherit;
+    }
+    .menu-item:hover {
+      color: var(--md-sys-color-on-surface);
+    }
+    .menu-item.active {
+      border-left-color: var(--md-sys-color-primary);
+      background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+      color: var(--md-sys-color-primary);
+    }
+    .content-area {
+      padding: 24px;
+      max-width: 900px;
+      margin: 0 auto;
+      min-height: 400px;
+    }
+    /* Content buttons: 13px + sentence case voor betere balans met filter-chips (11px) */
+    .content-area md-filled-button {
+      --md-filled-button-label-text-font: 500 13px/20px 'Roboto', sans-serif;
+      --md-filled-button-label-text-size: 13px;
+      text-transform: none;
+      letter-spacing: 0.03em;
+    }
+    @media (max-width: 600px) {
+      .content-area { padding: 16px; }
+    }
+    .tab-panel { display: none; contain: layout; }
+    .tab-panel.active { display: block; }
+    .skeleton {
+      background: linear-gradient(90deg, var(--md-sys-color-surface-container-high) 25%, var(--md-sys-color-surface-container) 50%, var(--md-sys-color-surface-container-high) 75%);
+      background-size: 200% 100%;
+      animation: skeleton-shimmer 1.2s ease-in-out infinite;
+      border-radius: 6px;
+    }
+    @keyframes skeleton-shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton { animation: none; background: var(--md-sys-color-surface-container-high); }
+    }
+    .dashboard-cards {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+      grid-auto-rows: 1fr;
+    }
+    .card {
+      padding: 16px;
+      border-radius: 12px;
+      background: var(--md-sys-color-surface-container);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 72px;
+      contain: layout;
+    }
+    .card-label {
+      font-size: 9px;
+      color: var(--md-sys-color-on-surface-variant);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    .card-value { font-weight: 700; font-size: 18px; min-height: 1.4em; line-height: 1.3; }
+    @media (min-width: 600px) { .card-value { font-size: 22px; } }
+    .card-sub { font-size: 10px; color: var(--md-sys-color-on-surface-variant); }
+    .section-title {
+      font-size: 10px;
+      color: var(--md-sys-color-on-surface-variant);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 10px;
+    }
+    .dashboard-section { margin-top: 16px; }
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .timer-card {
+      margin-bottom: 20px;
+    }
+    .timer-running-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    @media (min-width: 520px) {
+      .timer-running-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (min-width: 840px) {
+      .timer-running-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (min-width: 1100px) {
+      .timer-running-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    .timer-running {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 20px;
+    }
+    .timer-running-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 12px;
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 10px;
+      min-width: 0;
+    }
+    .timer-display {
+      font-size: 28px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: var(--md-sys-color-primary);
+    }
+    @media (min-width: 520px) {
+      .timer-display { font-size: 32px; }
+    }
+    .timer-project-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--md-sys-color-on-surface);
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+    .timer-description {
+      font-size: 11px;
+      color: var(--md-sys-color-on-surface-variant);
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+    .timer-running-item .timer-stop-btn { margin-top: 4px; width: 100%; max-width: 180px; }
+    .timer-idle .timer-label {
+      display: block;
+      margin-bottom: 20px;
+    }
+    .timer-idle .timer-start-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+    .timer-input-row {
+      display: flex;
+      gap: 12px;
+      width: 100%;
+    }
+    .timer-input-row md-outlined-select,
+    .timer-input-row md-outlined-text-field {
+      flex: 1;
+      min-width: 0;
+    }
+    .timer-actions-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .dashboard-project-card {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      min-height: 0;
+    }
+    .dashboard-project-name { font-weight: 700; font-size: 13px; }
+    .dashboard-project-sub { font-size: 11px; color: var(--md-sys-color-on-surface-variant); margin-top: 2px; line-height: 1.3; }
+    .dashboard-project-right { text-align: right; min-width: 72px; }
+    .dashboard-project-hours { font-weight: 700; color: var(--md-sys-color-primary); font-size: 13px; }
+    .dashboard-project-open { font-size: 10px; color: var(--md-sys-color-on-surface-variant); }
+    .capacity-bar-wrap {
+      margin-bottom: 20px;
+    }
+    .capacity-bar-wrap .capacity-bar {
+      width: 100%;
+    }
+    .capacity-bar {
+      height: 6px;
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .capacity-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.4s, background-color 0.3s;
+    }
+    .filter-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .filter-chip-btn {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      padding: 6px 12px;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      border-radius: 8px;
+      background: var(--md-sys-color-surface);
+      color: var(--md-sys-color-on-surface-variant);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .filter-chip-btn:hover { border-color: var(--md-sys-color-primary); }
+    .filter-chip-btn.active {
+      border-color: var(--md-sys-color-primary);
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+    }
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px;
+      border-radius: 12px;
+      background: var(--md-sys-color-surface-container);
+    }
+    .list-item-main { flex: 1; min-width: 0; }
+    .list-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      background: var(--md-sys-color-surface-container);
+      border-radius: 12px;
+    }
+    .empty-state-icon {
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+    .empty-state-icon md-icon {
+      color: var(--md-sys-color-on-surface-variant);
+    }
+    .empty-state-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--md-sys-color-on-surface);
+      margin-bottom: 8px;
+    }
+    .empty-state-sub {
+      font-size: 13px;
+      color: var(--md-sys-color-on-surface-variant);
+      margin-bottom: 20px;
+      max-width: 280px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .empty-state-cta-wrap {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .empty-state-cta-wrap a {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--md-sys-color-primary);
+      font-weight: 600;
+      font-size: 14px;
+      text-decoration: none;
+    }
+    .empty-state-cta-wrap a:hover { text-decoration: underline; }
+    .badge {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+    .hours-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .hours-table th,
+    .hours-table td {
+      padding: 12px 16px;
+      text-align: left;
+      vertical-align: middle;
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    }
+    .hours-table th {
+      font-size: 10px;
+      color: var(--md-sys-color-on-surface-variant);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      background: var(--md-sys-color-surface-container-high);
+      font-weight: 500;
+    }
+    .hours-table tbody tr:last-child td { border-bottom: none; }
+    .hours-table .col-omschrijving { min-width: 120px; }
+    .hours-table .col-datum { white-space: nowrap; }
+    .hours-table .col-uren { white-space: nowrap; }
+    .hours-table .col-actions { width: 1%; white-space: nowrap; }
+    .project-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .project-pill {
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--md-sys-color-outline);
+      border-radius: 8px;
+      background: var(--md-sys-color-surface);
+      color: var(--md-sys-color-on-surface-variant);
+      cursor: pointer;
+      transition: all 0.1s;
+      text-align: left;
+      font-family: inherit;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .project-pill .client {
+      font-size: 10px;
+      font-weight: 500;
+      opacity: 0.85;
+    }
+    .project-pill:hover { border-color: var(--md-sys-color-primary); }
+    .project-pill.selected {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-color: var(--md-sys-color-primary);
+    }
+    .hours-quick-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .hours-quick-btn {
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 700;
+      border: 1px solid var(--md-sys-color-outline);
+      border-radius: 8px;
+      background: var(--md-sys-color-surface);
+      color: var(--md-sys-color-on-surface-variant);
+      cursor: pointer;
+      transition: all 0.1s;
+      font-family: inherit;
+    }
+    .hours-quick-btn:hover { border-color: var(--md-sys-color-primary); }
+    .hours-quick-btn.selected {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-color: var(--md-sys-color-primary);
+    }
+    .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-field { margin-bottom: 14px; }
+    .form-field md-outlined-text-field,
+    .form-field md-outlined-select { width: 100%; }
+    .invoice-project-list {
+      border: 1px solid var(--md-sys-color-outline-variant);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .invoice-project-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    }
+    .invoice-project-row:last-child { border-bottom: none; }
+    .invoice-entry-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px 8px 36px;
+      border-bottom: 1px solid var(--md-sys-color-surface-container-high);
+      cursor: pointer;
+    }
+    .invoice-entry-row:last-child { border-bottom: none; }
+    .payment-days-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .payment-day-btn {
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--md-sys-color-outline);
+      border-radius: 8px;
+      background: var(--md-sys-color-surface);
+      color: var(--md-sys-color-on-surface-variant);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .payment-day-btn.selected {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-color: var(--md-sys-color-primary);
+    }
+    .fab-uren {
+      position: fixed;
+      bottom: 24px;
+      right: 20px;
+      z-index: 45;
+    }
+    @media (max-width: 600px) {
+      .fab-uren { bottom: 82px; }
+    }
+    .error-msg {
+      color: var(--md-sys-color-error);
+      font-size: 12px;
+      background: color-mix(in srgb, var(--md-sys-color-error) 10%, transparent);
+      border: 1px solid var(--md-sys-color-error);
+      padding: 8px 12px;
+      border-radius: 8px;
+    }
+    md-dialog { --md-dialog-container-color: var(--md-sys-color-surface); }
+    md-dialog:not([open]) { display: none !important; }
+    .danger { --md-filled-button-container-color: var(--md-sys-color-error); --md-filled-button-label-text-color: var(--md-sys-color-on-error); }
+    .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; padding-top: 8px; }
+    .pdf-preview {
+      background: white;
+      color: #222;
+      padding: 40px;
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      border-radius: 8px;
+      max-width: 820px;
+    }
+    .pdf-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 32px;
+      padding-top: 20px;
+      border-top: 1px solid #ddd;
+    }
+    /* M3 Snackbar – https://m3.material.io/components/snackbar/specs */
+    .snackbar {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      display: flex;
+      align-items: center;
+      min-height: 48px;
+      width: max-content;
+      max-width: min(400px, calc(100vw - 48px));
+      padding: 14px 24px;
+      background: var(--md-sys-color-inverse-surface);
+      color: var(--md-sys-color-inverse-on-surface);
+      font-family: 'Roboto', sans-serif;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 20px;
+      letter-spacing: 0.25px;
+      border-radius: 4px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+      z-index: 9999;
+      opacity: 0;
+      transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1), opacity 0.25s ease;
+      pointer-events: none;
+    }
+    .snackbar.visible {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .snackbar-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      width: 100%;
+    }
+    .snackbar-message {
+      flex: 1;
+      min-width: 0;
+    }
+    /* M3 text button – geen underline, state layer op hover */
+    .snackbar-action {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      border-radius: 4px;
+      color: var(--md-sys-color-inverse-primary);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      padding: 8px 12px;
+      margin: -8px -12px -8px 0;
+      transition: background-color 0.2s;
+    }
+    .snackbar-action:hover {
+      background: color-mix(in srgb, var(--md-sys-color-inverse-primary) 12%, transparent);
+    }
+    .login-screen {
+      position: fixed; inset: 0; z-index: 10000;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--md-sys-color-background);
+      padding: 24px;
+    }
+    .login-card { max-width: 360px; width: 100%; }
+  </style>
+</head>
+<body>
+  <div id="login-screen" class="login-screen" style="display:none;">
+    <div class="login-card card">
+      <h2 style="margin:0 0 8px;font-size:20px;">Urenregistratie</h2>
+      <p style="font-size:13px;color:var(--md-sys-color-on-surface-variant);margin:0 0 24px;">Log in om je data te synchroniseren</p>
+      <div id="login-form-wrap">
+        <div class="form-field">
+          <md-outlined-text-field id="login-email" label="E-mail" type="email" autocomplete="off" style="width:100%;"></md-outlined-text-field>
+        </div>
+        <div class="form-field">
+          <md-outlined-text-field id="login-password" label="Wachtwoord" type="password" autocomplete="off" style="width:100%;"></md-outlined-text-field>
+        </div>
+        <p id="login-error" style="font-size:12px;color:var(--md-sys-color-error);margin:0 0 12px;display:none;"></p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <md-filled-button id="login-btn">Inloggen</md-filled-button>
+          <md-outlined-button id="signup-btn">Account aanmaken</md-outlined-button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="app-shell">
+  <header class="app-header">
+    <md-icon-button id="hamburger-btn" aria-label="Menu">
+      <md-icon>menu</md-icon>
+    </md-icon-button>
+    <div class="header-labels">
+      <span class="header-title">URENREGISTRATIE</span>
+      <span class="header-tab-label" id="header-tab-label">Dashboard</span>
+    </div>
+    <div id="header-timer" class="header-timer" style="display:none;">
+      <md-icon style="font-size:18px;">schedule</md-icon>
+      <span class="header-timer-time">00:00:00</span>
+      <span class="header-timer-project"></span>
+    </div>
+  </header>
+
+  <div id="menu-overlay" class="menu-overlay" aria-hidden="true"></div>
+  <nav class="menu-dropdown" id="menu-dropdown">
+    <button type="button" class="menu-item active" data-tab="dash">Dashboard</button>
+    <button type="button" class="menu-item" data-tab="projects">Projecten</button>
+    <button type="button" class="menu-item" data-tab="uren">Uren</button>
+    <button type="button" class="menu-item" data-tab="invoices">Facturen</button>
+    <button type="button" class="menu-item" data-tab="clients">Klanten</button>
+    <button type="button" class="menu-item" data-tab="settings">Instellingen</button>
+    <button type="button" class="menu-item menu-item-account" id="menu-account" style="margin-top:8px;border-top:1px solid var(--md-sys-color-outline-variant);padding-top:8px;"></button>
+  </nav>
+
+  <main class="content-area">
+    <div id="loading" class="tab-panel active" style="padding:0;" aria-busy="true" aria-label="Inhoud laden">
+      <div class="dashboard-cards">
+        <div class="card"><div class="skeleton" style="height:9px;width:70%;"></div><div class="skeleton" style="height:22px;width:50%;margin-top:8px;"></div><div class="skeleton" style="height:10px;width:40%;margin-top:6px;"></div></div>
+        <div class="card"><div class="skeleton" style="height:9px;width:65%;"></div><div class="skeleton" style="height:22px;width:55%;margin-top:8px;"></div><div class="skeleton" style="height:10px;width:45%;margin-top:6px;"></div></div>
+        <div class="card"><div class="skeleton" style="height:9px;width:60%;"></div><div class="skeleton" style="height:22px;width:45%;margin-top:8px;"></div><div class="skeleton" style="height:10px;width:35%;margin-top:6px;"></div></div>
+        <div class="card"><div class="skeleton" style="height:9px;width:75%;"></div><div class="skeleton" style="height:22px;width:40%;margin-top:8px;"></div><div class="skeleton" style="height:10px;width:50%;margin-top:6px;"></div></div>
+      </div>
+      <div class="capacity-bar-wrap">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+          <div class="skeleton" style="height:9px;width:140px;"></div>
+          <div class="skeleton" style="height:11px;width:80px;"></div>
+        </div>
+        <div class="capacity-bar">
+          <div class="skeleton" style="height:100%;width:45%;border-radius:3px;"></div>
+        </div>
+      </div>
+      <div class="dashboard-section">
+        <div class="skeleton section-title" style="height:10px;width:120px;margin-bottom:10px;"></div>
+        <div class="card-list">
+          <div class="card list-item dashboard-project-card"><div style="display:flex;justify-content:space-between;"><div><div class="skeleton" style="height:14px;width:140px;"></div><div class="skeleton" style="height:11px;width:90px;margin-top:6px;"></div></div><div class="skeleton" style="height:14px;width:36px;"></div></div></div>
+          <div class="card list-item dashboard-project-card"><div style="display:flex;justify-content:space-between;"><div><div class="skeleton" style="height:14px;width:110px;"></div><div class="skeleton" style="height:11px;width:70px;margin-top:6px;"></div></div><div class="skeleton" style="height:14px;width:36px;"></div></div></div>
+          <div class="card list-item dashboard-project-card"><div style="display:flex;justify-content:space-between;"><div><div class="skeleton" style="height:14px;width:160px;"></div><div class="skeleton" style="height:11px;width:100px;margin-top:6px;"></div></div><div class="skeleton" style="height:14px;width:36px;"></div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-dash" class="tab-panel"></div>
+    <div id="panel-projects" class="tab-panel"></div>
+    <div id="panel-uren" class="tab-panel"></div>
+    <div id="panel-invoices" class="tab-panel"></div>
+    <div id="panel-clients" class="tab-panel"></div>
+    <div id="panel-settings" class="tab-panel"></div>
+  </main>
+
+  <div id="snackbar" class="snackbar md-typescale-body-medium" role="status" aria-live="polite">
+    <div class="snackbar-inner">
+      <span class="snackbar-message"></span>
+      <button type="button" class="snackbar-action" id="snackbar-undo" style="display:none;">Ongedaan maken</button>
+    </div>
+  </div>
+
+  <md-fab class="fab-uren" variant="primary" label="Uren loggen (Ctrl+N)" aria-label="Uren loggen (Ctrl+N)" id="fab-quick-log" style="display:none;">
+    <md-icon slot="icon">add</md-icon>
+  </md-fab>
+
+  <!-- Quick log modal -->
+  <md-dialog id="quick-log-dialog">
+    <div slot="headline">Uren loggen</div>
+    <div slot="content" id="quick-log-content"></div>
+    <div slot="actions">
+      <md-filled-button id="btn-quick-log-save">Opslaan (Ctrl+Enter)</md-filled-button>
+      <md-text-button id="btn-quick-log-close">Sluiten</md-text-button>
+    </div>
+  </md-dialog>
+
+  <!-- Project dialog -->
+  <md-dialog id="project-dialog">
+    <div slot="headline" id="project-dialog-title">Nieuw project</div>
+    <div slot="content" id="project-dialog-content"></div>
+    <div slot="actions">
+      <md-filled-button id="btn-project-save">Opslaan (Ctrl+Enter)</md-filled-button>
+      <md-text-button id="btn-project-close">Annuleren</md-text-button>
+    </div>
+  </md-dialog>
+
+  <!-- Client dialog -->
+  <md-dialog id="client-dialog">
+    <div slot="headline" id="client-dialog-title">Nieuwe klant</div>
+    <div slot="content" id="client-dialog-content"></div>
+    <div slot="actions">
+      <md-filled-button id="btn-client-save">Opslaan (Ctrl+Enter)</md-filled-button>
+      <md-text-button id="btn-client-close">Annuleren</md-text-button>
+    </div>
+  </md-dialog>
+
+  <!-- Invoice create dialog -->
+  <md-dialog id="invoice-create-dialog">
+    <div slot="headline">Factuur aanmaken</div>
+    <div slot="content" id="invoice-create-content"></div>
+    <div slot="actions">
+      <md-filled-button id="btn-invoice-create">Aanmaken (Ctrl+Enter)</md-filled-button>
+      <md-text-button id="btn-invoice-create-close">Annuleren</md-text-button>
+    </div>
+  </md-dialog>
+
+  <!-- Invoice PDF dialog -->
+  <md-dialog id="invoice-pdf-dialog" style="--md-dialog-container-max-width: 90vw;">
+    <div slot="headline">Factuur</div>
+    <div slot="content" id="invoice-pdf-content"></div>
+    <div slot="actions">
+      <md-filled-button id="btn-pdf-print">Download / Print PDF</md-filled-button>
+      <md-text-button id="btn-pdf-close">Sluiten</md-text-button>
+    </div>
+  </md-dialog>
+
+  <!-- Invoice status dialog -->
+  <md-dialog id="invoice-status-dialog">
+    <div slot="headline">Status wijzigen</div>
+    <div slot="content" id="invoice-status-content"></div>
+    <div slot="actions">
+      <md-text-button id="btn-invoice-status-close">Sluiten</md-text-button>
+    </div>
+  </md-dialog>
+
+  <!-- Delete confirm dialog -->
+  <md-dialog id="confirm-delete-dialog">
+    <div slot="headline">Bevestigen</div>
+    <div slot="content">
+      <p id="confirm-delete-message">Weet je zeker dat je dit wilt verwijderen?</p>
+    </div>
+    <div slot="actions">
+      <md-filled-button id="btn-confirm-delete-yes" class="danger">Ja, verwijderen</md-filled-button>
+      <md-text-button id="btn-confirm-delete-no">Nee</md-text-button>
+    </div>
+  </md-dialog>
+
+  </div><!-- /app-shell -->
+  <script src="firebase-config.js"></script>
+  <script>
+    // Toon direct inlogscherm als Firebase geconfigureerd is (voorkomt flits van app zonder login)
+    (function() {
+      const c = window.firebaseConfig;
+      if (c?.apiKey && c.apiKey !== 'VUL_JE_API_KEY_IN') {
+        var ls = document.getElementById('login-screen');
+        var as = document.getElementById('app-shell');
+        if (ls) ls.style.display = 'flex';
+        if (as) as.style.display = 'none';
+      }
+    })();
+  </script>
+  <script type="module" src="firebase-loader.js?v=2"></script>
+</body>
+</html>
