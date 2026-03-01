@@ -8,17 +8,7 @@
   "theme_color": "#4C662B",
   "orientation": "portrait-primary",
   "icons": [
-    {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect fill='%234C662B' width='48' height='48' rx='8'/%3E%3Ccircle cx='24' cy='24' r='12' fill='none' stroke='white' stroke-width='3'/%3E%3Cpath stroke='white' stroke-width='3' stroke-linecap='round' d='M24 14v10l6 6' fill='none'/%3E%3C/svg%3E",
-      "sizes": "48x48",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect fill='%234C662B' width='192' height='192' rx='32'/%3E%3Ccircle cx='96' cy='96' r='48' fill='none' stroke='white' stroke-width='8'/%3E%3Cpath stroke='white' stroke-width='8' stroke-linecap='round' d='M96 56v40l24 24' fill='none'/%3E%3C/svg%3E",
-      "sizes": "192x192",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    {"src": "favicon.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any"},
+    {"src": "favicon.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "maskable"}
   ]
 }

@@ -2,9 +2,9 @@
  * Service Worker – Urenregistratie PWA / offline
  * Cachet app shell + externe assets voor offline gebruik
  */
-const CACHE_NAME = 'urenregistratie-v2';
+const CACHE_NAME = 'urenregistratie-v3';
 const BASE = new URL('./', self.location.href).href;
-const PRECACHE = [BASE, BASE + 'index.html', BASE + 'app.js', BASE + 'theme.css', BASE + 'manifest.json'];
+const PRECACHE = [BASE, BASE + 'index.html', BASE + 'app.js', BASE + 'theme.css', BASE + 'manifest.json', BASE + 'favicon.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
