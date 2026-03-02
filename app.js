@@ -9,11 +9,20 @@ const STORAGE_KEYS = {
   invoices: 'bold700:invoices',
   settings: 'bold700:settings',
   clients: 'bold700:clients',
+  labels: 'bold700:labels',
   timer: 'bold700:timer',
   // Legacy keys voor migratie
   legacy: 'urenregistratie-data',
   legacyCapacity: 'urenregistratie-capacity',
 };
+
+const DEFAULT_LABELS = [
+  { id: 'lbl-1', name: 'Design' },
+  { id: 'lbl-2', name: 'Call' },
+  { id: 'lbl-3', name: 'Research' },
+  { id: 'lbl-4', name: 'Development' },
+  { id: 'lbl-5', name: 'Overleg' },
+];
 
 const formatEur = (n) =>
   new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(n || 0);
@@ -270,6 +279,7 @@ let state = {
   entries: [],
   invoices: [],
   clients: [],
+  labels: [...DEFAULT_LABELS],
   settings: {
     weekCapacity: 40,
     company: {},
@@ -297,6 +307,7 @@ function loadState() {
     state.entries = initial.entries || [];
     state.invoices = initial.invoices || [];
     state.clients = initial.clients || [];
+    state.labels = initial.labels && initial.labels.length > 0 ? initial.labels : DEFAULT_LABELS;
     const t = initial.timers;
     state.timers = Array.isArray(t) ? t.filter((x) => x?.startTime && x?.projectId) : [];
     if (initial.settings) {
@@ -313,6 +324,8 @@ function loadState() {
   state.entries = storageLoad(STORAGE_KEYS.entries) || [];
   state.invoices = storageLoad(STORAGE_KEYS.invoices) || [];
   state.clients = storageLoad(STORAGE_KEYS.clients) || [];
+  const storedLabels = storageLoad(STORAGE_KEYS.labels);
+  state.labels = Array.isArray(storedLabels) && storedLabels.length > 0 ? storedLabels : DEFAULT_LABELS;
   const t = storageLoad(STORAGE_KEYS.timer);
   if (Array.isArray(t)) {
     state.timers = t.filter((x) => x?.startTime && x?.projectId);
@@ -335,6 +348,7 @@ function saveState() {
     storageSave(STORAGE_KEYS.entries, state.entries);
     storageSave(STORAGE_KEYS.invoices, state.invoices);
     storageSave(STORAGE_KEYS.clients, state.clients);
+    storageSave(STORAGE_KEYS.labels, state.labels);
     storageSave(STORAGE_KEYS.settings, state.settings);
     storageSave(STORAGE_KEYS.timer, state.timers);
   }
@@ -345,6 +359,7 @@ function saveState() {
       entries: state.entries,
       invoices: state.invoices,
       clients: state.clients,
+      labels: state.labels,
       settings: state.settings,
       timers: state.timers,
     }).catch(() => {});
@@ -462,14 +477,14 @@ function updateTimerHeader() {
 function renderDashboard() {
   const el = document.getElementById('panel-dash');
   if (!el) return;
-  const { projects, entries, invoices, settings } = state;
+  const { projects, entries, invoices, settings, clients } = state;
   const now = new Date();
   const thisMonth = entries.filter((e) =>
     e.date?.startsWith(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
   );
   const draftInvoiceIds = new Set(invoices.filter((i) => i.status === 'draft').map((i) => i.id));
   const unbilledEntries = entries.filter((e) => !e.notBillable && (!e.invoiceId || draftInvoiceIds.has(e.invoiceId)));
-  const unbilledValue = unbilledEntries.reduce((sum, e) => {
+  const unbilledHourlyValue = unbilledEntries.reduce((sum, e) => {
     const p = projects.find((pr) => pr.id === e.projectId);
     if (!p || p.type !== 'hourly') return sum;
     return sum + (e.hours || 0) * (p.rate || 0);
@@ -480,6 +495,8 @@ function renderDashboard() {
   const monthHours = thisMonth.reduce((s, e) => s + (e.hours || 0), 0);
   const activeProjects = projects.filter((p) => p.status === 'active');
   const vasteRetainers = activeProjects.filter((p) => p.type === 'retainer' || p.type === 'retainer_hours');
+  const retainerTeFactureren = vasteRetainers.reduce((s, p) => s + retainerAmountPerMonth(p), 0);
+  const unbilledValue = unbilledHourlyValue + retainerTeFactureren;
   const retainerHoursThisWeek = vasteRetainers.reduce((s, p) => s + retainerHoursPerWeek(p), 0);
   const retainerHoursThisMonth = vasteRetainers.reduce((s, p) => s + retainerHoursPerMonth(p), 0);
   const totalMonthHours = monthHours + retainerHoursThisMonth;
@@ -504,8 +521,11 @@ function renderDashboard() {
   const hoursLeft = Math.max(0, weekCapacity - totalUsedThisWeek);
   const overbooked = totalUsedThisWeek > weekCapacity;
   const monthSub = retainerHoursThisMonth > 0 ? `${thisMonth.length} regels + ${retainerHoursThisMonth.toFixed(0)}u retainer` : `${thisMonth.length} regels`;
+  const teFactSub = vasteRetainers.length > 0
+    ? `${unbilledEntries.length} urenregels + ${vasteRetainers.length} retainer${vasteRetainers.length > 1 ? 's' : ''}`
+    : `${unbilledEntries.length} urenregels`;
   const stats = [
-    { label: 'Te factureren', value: formatEur(unbilledValue), sub: `${unbilledEntries.length} urenregels`, color: 'var(--md-sys-color-primary)' },
+    { label: 'Te factureren', value: formatEur(unbilledValue), sub: teFactSub, color: 'var(--md-sys-color-primary)' },
     { label: 'Openstaand', value: formatEur(openValue), sub: `${openInvoices.length} facturen`, color: 'var(--md-sys-color-tertiary)' },
     { label: 'Ontvangen', value: formatEur(paidValue), sub: 'alle tijden', color: 'var(--md-sys-color-primary)' },
     { label: 'Uren deze maand', value: `${totalMonthHours.toFixed(1)}u`, sub: monthSub, color: 'var(--md-sys-color-secondary)' },
@@ -560,7 +580,12 @@ function renderDashboard() {
     <div class="dashboard-section">
       <div class="section-title">Actieve projecten</div>
       <div class="card-list">
-      ${activeProjects.length === 0 ? emptyState({
+      ${activeProjects.length === 0 ? emptyState(clients.length === 0 ? {
+        icon: 'business',
+        title: 'Begin met een klant',
+        subtitle: 'Voeg eerst een klant toe. Daarna kun je projecten aanmaken en uren loggen.',
+        cta: { nav: 'clients', text: 'Voeg een klant toe' }
+      } : {
         icon: 'work',
         title: 'Nog geen actieve projecten',
         subtitle: 'Maak een project aan om uren te loggen en te factureren.',
@@ -568,6 +593,9 @@ function renderDashboard() {
       }) : activeProjects.map((p) => {
         const pEntries = entries.filter((e) => e.projectId === p.id);
         const totalHours = pEntries.reduce((s, e) => s + (e.hours || 0), 0);
+        const hoursThisWeek = pEntries.filter((e) => e.date >= weekStart && e.date <= weekEnd).reduce((s, e) => s + (e.hours || 0), 0);
+        const retainerWeek = (p.type === 'retainer' || p.type === 'retainer_hours') ? retainerHoursPerWeek(p) : 0;
+        const weekDisplay = hoursThisWeek + retainerWeek;
         const unbilledHours = pEntries.filter((e) => !e.notBillable && (!e.invoiceId || draftInvoiceIds.has(e.invoiceId))).reduce((s, e) => s + (e.hours || 0), 0);
         const openAmount = p.type === 'hourly' ? formatEur(unbilledHours * p.rate) + ' open' : (p.type === 'retainer' || p.type === 'retainer_hours') ? (p.type === 'retainer' ? `${formatEur(p.rate)} ${periodLabel(p.period)}` : `${p.hoursPerPeriod || 0}u × ${formatEur(p.rate)}/uur`) : '—';
         const showOpenLabel = p.type === 'hourly';
@@ -579,7 +607,8 @@ function renderDashboard() {
               <div class="dashboard-project-sub">${escapeHtml(subtitle)}</div>
             </div>
             <div class="dashboard-project-right">
-              <div class="dashboard-project-hours">${totalHours.toFixed(1)}u</div>
+              <div class="dashboard-project-hours">${totalHours.toFixed(1)}u totaal</div>
+              <div class="dashboard-project-week" style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">${weekDisplay.toFixed(1)}u deze week</div>
               <div class="dashboard-project-open">${openAmount}${showOpenLabel ? '' : ''}</div>
             </div>
           </div>
@@ -643,12 +672,19 @@ function renderProjects() {
     </div>
     <div class="card-list">
     ${filtered.length === 0 ? (projects.length === 0
-      ? emptyState({
-          icon: 'folder_open',
-          title: 'Nog geen projecten',
-          subtitle: 'Projecten zijn de basis voor urenregistratie en facturatie. Voeg je eerste project toe om te beginnen.',
-          cta: { action: 'btn-empty-project-new', text: 'Eerste project aanmaken' }
-        })
+      ? (clients.length === 0
+          ? emptyState({
+              icon: 'business',
+              title: 'Begin met een klant',
+              subtitle: 'Om projecten aan te maken heb je eerst een klant nodig. Voeg je eerste klant toe.',
+              cta: { nav: 'clients', text: 'Voeg een klant toe' }
+            })
+          : emptyState({
+              icon: 'folder_open',
+              title: 'Nog geen projecten',
+              subtitle: 'Projecten zijn de basis voor urenregistratie en facturatie. Voeg je eerste project toe om te beginnen.',
+              cta: { action: 'btn-empty-project-new', text: 'Eerste project aanmaken' }
+            }))
       : emptyState({
           icon: 'filter_list',
           title: 'Geen projecten in deze filter',
@@ -691,6 +727,9 @@ function renderProjects() {
   });
   el.querySelector('#btn-project-new')?.addEventListener('click', () => openProjectDialog());
   el.querySelector('#btn-empty-project-new')?.addEventListener('click', () => openProjectDialog());
+  el.querySelectorAll('[data-nav]').forEach((a) => {
+    a.addEventListener('click', (e) => { e.preventDefault(); switchTab(a.dataset.nav); });
+  });
   el.querySelectorAll('[data-action="edit-project"]').forEach((b) => {
     b.addEventListener('click', () => openProjectDialog(b.dataset.id));
   });
@@ -703,7 +742,7 @@ function renderProjects() {
 function renderUren() {
   const el = document.getElementById('panel-uren');
   if (!el) return;
-  const { entries, projects, invoices } = state;
+  const { entries, projects, invoices, clients } = state;
   const draftInvoiceIds = new Set(invoices.filter((i) => i.status === 'draft').map((i) => i.id));
   const sorted = [...entries].sort((a, b) => {
     const byDate = (b.date || '').localeCompare(a.date || '');
@@ -775,7 +814,12 @@ function renderUren() {
       </div>
       ${projects.length > 0 ? '<md-filled-button id="btn-uren-log"><md-icon slot="icon">add</md-icon> Uren loggen</md-filled-button>' : ''}
     </div>
-    ${projects.length === 0 ? emptyState({
+    ${projects.length === 0 ? emptyState(clients.length === 0 ? {
+      icon: 'business',
+      title: 'Begin met een klant',
+      subtitle: 'Om projecten en uren te loggen heb je eerst een klant nodig. Voeg je eerste klant toe.',
+      cta: { nav: 'clients', text: 'Voeg een klant toe' }
+    } : {
       icon: 'folder_off',
       title: 'Eerst een project nodig',
       subtitle: 'Om uren te loggen heb je minimaal één project nodig. Maak eerst een project aan.',
@@ -818,7 +862,7 @@ function renderUren() {
           <tr>
             <th class="col-project">Project</th>
             <th class="col-omschrijving">Omschrijving</th>
-            <th class="col-label"></th>
+            <th class="col-label" style="min-width:80px;">Type</th>
             <th class="col-datum">Datum</th>
             <th class="col-uren">Uren</th>
             <th class="col-actions"></th>
@@ -837,7 +881,8 @@ function renderUren() {
               </td>
               <td class="col-omschrijving" style="font-size:13px;color:var(--md-sys-color-on-surface-variant);">${e.description || '<span style="color:var(--md-sys-color-outline);font-style:italic;">—</span>'}</td>
               <td class="col-label">
-                <div style="display:flex;gap:6px;align-items:center;">
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                  ${(state.labels?.find((l) => l.id === e.labelId)?.name) ? `<span class="badge" style="background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);">${escapeHtml(state.labels.find((l) => l.id === e.labelId).name)}</span>` : ''}
                   ${e.notBillable ? '<span class="badge" style="background:var(--md-sys-color-surface-container-high);">intern</span>' : ''}
                   ${isBilled ? `<span class="badge" style="background:var(--md-sys-color-primary-container);">#${inv?.number || ''}</span>` : ''}
                 </div>
@@ -932,6 +977,8 @@ function renderClientDashboard(clientId) {
   const monthHours = thisMonth.reduce((s, e) => s + (e.hours || 0), 0);
   const lastMonthHours = lastMonth.reduce((s, e) => s + (e.hours || 0), 0);
   const totalHours = clientEntries.reduce((s, e) => s + (e.hours || 0), 0);
+  const billableHours = clientEntries.filter((e) => !e.notBillable).reduce((s, e) => s + (e.hours || 0), 0);
+  const nonBillableHours = clientEntries.filter((e) => e.notBillable).reduce((s, e) => s + (e.hours || 0), 0);
   const lastEntries = [...clientEntries].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 5);
   const hoursTrend = lastMonthHours > 0 ? ((monthHours - lastMonthHours) / lastMonthHours * 100).toFixed(0) : null;
   el.innerHTML = `
@@ -1001,6 +1048,7 @@ function renderClientDashboard(clientId) {
               <div class="dashboard-project-sub">${sub}</div>
             </div>
             <div class="dashboard-project-right" style="display:flex;align-items:center;gap:10px;">
+              ${e.notBillable ? '<span class="badge" style="background:var(--md-sys-color-surface-container-high);">intern</span>' : ''}
               ${e.invoiceId && !draftInvoiceIds.has(e.invoiceId) ? '<span class="badge" style="background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container);">gefact.</span>' : ''}
               <span class="dashboard-project-hours">${e.hours}u</span>
               <span style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">${formatDate(e.date)}</span>
@@ -1014,9 +1062,19 @@ function renderClientDashboard(clientId) {
     <div class="dashboard-section" style="margin-top:24px;">
       <div class="section-title">Totaal</div>
       <div class="card" style="padding:16px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-weight:600;">Alle uren (totaal)</span>
-          <span style="font-weight:700;font-size:18px;color:var(--md-sys-color-primary);">${totalHours.toFixed(1)}u</span>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-weight:600;">Factureerbare uren</span>
+            <span style="font-weight:700;font-size:16px;color:var(--md-sys-color-primary);">${billableHours.toFixed(1)}u</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-weight:600;">Intern (niet factureerbaar)</span>
+            <span style="font-weight:700;font-size:16px;color:var(--md-sys-color-on-surface-variant);">${nonBillableHours.toFixed(1)}u</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--md-sys-color-outline-variant);">
+            <span style="font-weight:700;">Alle uren (totaal)</span>
+            <span style="font-weight:700;font-size:18px;color:var(--md-sys-color-primary);">${totalHours.toFixed(1)}u</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1121,15 +1179,15 @@ function renderSettings() {
           <md-outlined-text-field id="settings-company-iban" label="IBAN" value="${escapeHtml(co.iban || '')}"></md-outlined-text-field>
         </div>
         <div class="form-field">
-          <md-outlined-text-field id="settings-company-kvk" label="KvK-nummer" value="${escapeHtml(co.kvk || '')}"></md-outlined-text-field>
+          <md-outlined-text-field id="settings-company-kvk" label="KvK-nummer" inputmode="numeric" value="${escapeHtml(co.kvk || '')}"></md-outlined-text-field>
         </div>
       </div>
       <div class="form-grid-2">
         <div class="form-field">
-          <md-outlined-text-field id="settings-company-phone" label="Telefoon" value="${escapeHtml(co.phone || '')}"></md-outlined-text-field>
+          <md-outlined-text-field id="settings-company-phone" label="Telefoon" type="tel" inputmode="tel" value="${escapeHtml(co.phone || '')}"></md-outlined-text-field>
         </div>
         <div class="form-field">
-          <md-outlined-text-field id="settings-company-email" label="E-mail" value="${escapeHtml(co.email || '')}"></md-outlined-text-field>
+          <md-outlined-text-field id="settings-company-email" label="E-mail" type="email" inputmode="email" value="${escapeHtml(co.email || '')}"></md-outlined-text-field>
         </div>
       </div>
       <div class="form-field">
@@ -1148,9 +1206,24 @@ function renderSettings() {
       </div>
     </div>
     <div class="card" style="margin-bottom:20px;">
+      <div class="card-label" style="margin-bottom:14px;">Werklabels (onderwerpen)</div>
+      <p style="font-size:12px;color:var(--md-sys-color-on-surface-variant);margin:0 0 12px;">Labels zoals Design, Call, Research. Kies bij het loggen van uren; ze verschijnen op de factuur.</p>
+      <div class="label-edit-list" style="display:flex;flex-direction:column;gap:8px;">
+        ${(state.labels || []).map((l) => `
+          <div class="label-edit-row" style="display:flex;align-items:center;gap:8px;">
+            <md-outlined-text-field data-label-id="${escapeHtml(l.id)}" value="${escapeHtml(l.name)}" style="flex:1;" label="Label"></md-outlined-text-field>
+            <md-icon-button data-action="delete-label" data-label-id="${escapeHtml(l.id)}" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>
+          </div>
+        `).join('')}
+      </div>
+      <div style="margin-top:12px;">
+        <md-outlined-button id="btn-add-label">+ Label toevoegen</md-outlined-button>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:20px;">
       <div class="card-label" style="margin-bottom:14px;">Capaciteitsplanning</div>
       <div class="form-field">
-        <md-outlined-text-field id="settings-week-capacity" label="Weekcapaciteit (uren)" type="number" value="${state.settings.weekCapacity || 40}"></md-outlined-text-field>
+        <md-outlined-text-field id="settings-week-capacity" label="Weekcapaciteit (uren)" type="number" inputmode="numeric" value="${state.settings.weekCapacity || 40}"></md-outlined-text-field>
       </div>
     </div>
     <div class="card" style="margin-bottom:20px;">
@@ -1173,6 +1246,24 @@ function renderSettings() {
     ` : ''}
     <md-filled-button id="btn-settings-save">Opslaan</md-filled-button>
   `;
+  el.querySelector('#btn-add-label')?.addEventListener('click', () => {
+    const list = el.querySelector('.label-edit-list');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'label-edit-row';
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    row.innerHTML = `
+      <md-outlined-text-field data-label-id="lbl-${uid()}" value="" style="flex:1;" label="Label"></md-outlined-text-field>
+      <md-icon-button data-action="delete-label" data-label-id="" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>
+    `;
+    list.appendChild(row);
+  });
+  el.querySelectorAll('[data-action="delete-label"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.label-edit-row');
+      if (row) row.remove();
+    });
+  });
   el.querySelector('#settings-logo-upload')?.addEventListener('click', () => document.getElementById('settings-logo-input')?.click());
   el.querySelector('#settings-logo-remove')?.addEventListener('click', () => {
     state.settings.company = state.settings.company || {};
@@ -1262,6 +1353,7 @@ function renderSettings() {
   });
   el.querySelector('#btn-settings-save')?.addEventListener('click', () => {
     const prevSettings = JSON.parse(JSON.stringify(state.settings));
+    const prevLabels = JSON.parse(JSON.stringify(state.labels || []));
     const company = state.settings.company || {};
     company.name = document.getElementById('settings-company-name')?.value ?? company.name;
     company.address = document.getElementById('settings-company-address')?.value ?? company.address;
@@ -1274,11 +1366,22 @@ function renderSettings() {
     company.btw = document.getElementById('settings-company-btw')?.value ?? company.btw;
     state.settings.company = company;
     state.settings.weekCapacity = Number(document.getElementById('settings-week-capacity')?.value) || 40;
+
+    const labelFields = document.querySelectorAll('.label-edit-row md-outlined-text-field');
+    const newLabels = [];
+    labelFields.forEach((tf) => {
+      const id = tf.dataset?.labelId;
+      const name = (tf.value || '').trim();
+      if (name) newLabels.push({ id: id || 'lbl-' + uid(), name });
+    });
+    state.labels = newLabels.length > 0 ? newLabels : DEFAULT_LABELS;
+
     saveState();
     renderDashboard();
     showSnackbar('Instellingen opgeslagen', {
       undo: () => {
         state.settings = prevSettings;
+        state.labels = prevLabels;
         saveState();
         renderSettings();
         renderDashboard();
@@ -1296,16 +1399,28 @@ function getClientGroupMap() {
       (p.type === 'fixed' || p.type === 'retainer' || p.type === 'retainer_hours' || billable.some((e) => e.projectId === p.id))
   );
   const clientGroupMap = {};
-  const clientKeyMap = {};
-  projectsWithBillable.forEach((p) => {
-    const key = (p.client || '').toLowerCase();
-    if (!key) return;
-    if (!clientKeyMap[key]) clientKeyMap[key] = p.client;
-    const displayName = clientKeyMap[key];
-    if (!clientGroupMap[displayName]) clientGroupMap[displayName] = [];
-    clientGroupMap[displayName].push(p);
+  const clientMatches = (p, clientName) => {
+    const pc = (p.client || '').trim().toLowerCase();
+    const cn = (clientName || '').trim().toLowerCase();
+    return pc === cn || pc.startsWith(cn) || cn.startsWith(pc);
+  };
+  state.clients.forEach((c) => {
+    const name = (c.name || '').trim();
+    if (!name) return;
+    const projs = projectsWithBillable.filter((p) => clientMatches(p, name));
+    if (projs.length > 0) clientGroupMap[name] = projs;
   });
-  return { clientGroupMap, clientNames: Object.keys(clientGroupMap), billable };
+  projectsWithBillable.forEach((p) => {
+    const projClient = (p.client || '').trim();
+    if (!projClient) return;
+    const alreadyIn = Object.keys(clientGroupMap).some((k) =>
+      clientGroupMap[k].some((pr) => pr.id === p.id)
+    );
+    if (alreadyIn) return;
+    const projs = projectsWithBillable.filter((pr) => (pr.client || '').trim().toLowerCase() === projClient.toLowerCase());
+    if (projs.length > 0) clientGroupMap[projClient] = projs;
+  });
+  return { clientGroupMap, clientNames: Object.keys(clientGroupMap).sort(), billable };
 }
 
 function calcInvoiceTotal() {
@@ -1521,7 +1636,7 @@ function executePendingDelete() {
 function openQuickLogDialog() {
   const activeProjects = state.projects.filter((p) => p.status === 'active');
   const firstId = activeProjects[0]?.id || '';
-  state.quickLogForm = { projectId: firstId, date: today(), hours: '', description: '', notBillable: false };
+  state.quickLogForm = { projectId: firstId, date: today(), hours: '', description: '', labelId: '', notBillable: false };
   const content = document.getElementById('quick-log-content');
   content.innerHTML = `
     ${activeProjects.length <= 4 ? `
@@ -1550,12 +1665,23 @@ function openQuickLogDialog() {
           <button type="button" class="hours-quick-btn" data-hours="${h}">${h}u</button>
         `).join('')}
         <span style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">of:</span>
-        <md-outlined-text-field id="quick-hours" type="number" step="0.25" min="0.25" placeholder="bijv. 6.5" style="width:100px;"></md-outlined-text-field>
+        <md-outlined-text-field id="quick-hours" type="number" inputmode="decimal" step="0.25" min="0.25" placeholder="bijv. 6.5" style="width:100px;"></md-outlined-text-field>
       </div>
     </div>
     <div class="form-field">
       <md-outlined-text-field id="quick-date" label="Datum" type="date" value="${today()}"></md-outlined-text-field>
     </div>
+    ${state.labels?.length > 0 ? `
+    <div class="form-field">
+      <span class="card-label">Onderwerp / type werk</span>
+      <div class="label-pills">
+        <button type="button" class="label-pill ${!state.quickLogForm.labelId ? 'selected' : ''}" data-label-id="">Geen</button>
+        ${state.labels.map((l) => `
+          <button type="button" class="label-pill ${state.quickLogForm.labelId === l.id ? 'selected' : ''}" data-label-id="${escapeHtml(l.id)}">${escapeHtml(l.name)}</button>
+        `).join('')}
+      </div>
+    </div>
+    ` : ''}
     <div class="form-field">
       <md-outlined-text-field id="quick-description" label="Omschrijving (optioneel)" placeholder="Wat heb je gedaan?"></md-outlined-text-field>
     </div>
@@ -1587,6 +1713,13 @@ function openQuickLogDialog() {
   content.querySelector('#quick-date')?.addEventListener('input', (e) => { state.quickLogForm.date = e.target.value; });
   content.querySelector('#quick-description')?.addEventListener('input', (e) => { state.quickLogForm.description = e.target.value; });
   content.querySelector('#quick-not-billable')?.addEventListener('change', (e) => { state.quickLogForm.notBillable = e.target.checked; });
+  content.querySelectorAll('.label-pill').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      content.querySelectorAll('.label-pill').forEach((b) => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      state.quickLogForm.labelId = btn.dataset.labelId || '';
+    });
+  });
   document.getElementById('quick-log-dialog').show();
 }
 
@@ -1602,15 +1735,19 @@ function saveQuickLog() {
   if (descInput) form.description = descInput.value;
   const nbInput = document.querySelector('#quick-not-billable');
   if (nbInput) form.notBillable = nbInput.checked;
+  const selectedLabel = document.querySelector('.label-pill.selected');
+  if (selectedLabel) form.labelId = selectedLabel.dataset.labelId || '';
   const errEl = document.getElementById('quick-log-error');
   if (!form.projectId) { errEl.textContent = 'Selecteer een project'; errEl.style.display = 'block'; return; }
   const hours = parseFloat(form.hours);
   if (!form.hours || hours <= 0) { errEl.textContent = 'Vul uren in'; errEl.style.display = 'block'; return; }
   const entryId = uid();
+  const { labelId, ...rest } = form;
   state.entries.push({
-    ...form,
+    ...rest,
     id: entryId,
     hours,
+    labelId: labelId || undefined,
     createdAt: new Date().toISOString(),
   });
   saveState();
@@ -1638,7 +1775,10 @@ function openProjectDialog(editId = null) {
       <md-outlined-text-field id="project-name" label="Projectnaam *" value="${escapeHtml(state.projectForm.name)}"></md-outlined-text-field>
     </div>
     ${clients.length === 0 ? `
-      <div class="error-msg">Nog geen klanten. <a href="#" data-nav="clients">Voeg eerst een klant toe →</a></div>
+      <div class="form-hint">
+        <span>Voeg eerst een klant toe om een project aan te maken.</span>
+        <md-text-button data-nav="clients">Naar klanten →</md-text-button>
+      </div>
     ` : `
       <div class="form-field">
         <md-outlined-select id="project-client" label="Klant *">
@@ -1657,15 +1797,15 @@ function openProjectDialog(editId = null) {
     </div>
     <div id="project-fields-hourly" class="form-grid-2" style="${state.projectForm.type !== 'hourly' ? 'display:none' : ''}">
       <div class="form-field">
-        <md-outlined-text-field id="project-rate" label="Uurtarief (€)" type="number" value="${state.projectForm.rate}"></md-outlined-text-field>
+        <md-outlined-text-field id="project-rate" label="Uurtarief (€)" type="number" inputmode="decimal" value="${state.projectForm.rate}"></md-outlined-text-field>
       </div>
       <div class="form-field">
-        <md-outlined-text-field id="project-budget" label="Urenbudget (optioneel)" type="number" value="${state.projectForm.budget}"></md-outlined-text-field>
+        <md-outlined-text-field id="project-budget" label="Urenbudget (optioneel)" type="number" inputmode="decimal" value="${state.projectForm.budget}"></md-outlined-text-field>
       </div>
     </div>
     <div id="project-fields-retainer" class="form-grid-2" style="${state.projectForm.type !== 'retainer' ? 'display:none' : ''}">
       <div class="form-field">
-        <md-outlined-text-field id="project-retainer-rate" label="Bedrag (€)" type="number" value="${state.projectForm.rate}"></md-outlined-text-field>
+        <md-outlined-text-field id="project-retainer-rate" label="Bedrag (€)" type="number" inputmode="decimal" value="${state.projectForm.rate}"></md-outlined-text-field>
       </div>
       <div class="form-field">
         <md-outlined-select id="project-period" label="Periode">
@@ -1678,10 +1818,10 @@ function openProjectDialog(editId = null) {
     </div>
     <div id="project-fields-retainer-hours" class="form-grid-2" style="${state.projectForm.type !== 'retainer_hours' ? 'display:none' : ''}">
       <div class="form-field">
-        <md-outlined-text-field id="project-hours-per-period" label="Uren per periode" type="number" value="${state.projectForm.hoursPerPeriod || ''}" placeholder="bijv. 36"></md-outlined-text-field>
+        <md-outlined-text-field id="project-hours-per-period" label="Uren per periode" type="number" inputmode="numeric" value="${state.projectForm.hoursPerPeriod || ''}" placeholder="bijv. 36"></md-outlined-text-field>
       </div>
       <div class="form-field">
-        <md-outlined-text-field id="project-retainer-hours-rate" label="Uurtarief (€)" type="number" value="${state.projectForm.rate}" placeholder="bijv. 108"></md-outlined-text-field>
+        <md-outlined-text-field id="project-retainer-hours-rate" label="Uurtarief (€)" type="number" inputmode="decimal" value="${state.projectForm.rate}" placeholder="bijv. 108"></md-outlined-text-field>
       </div>
       <div class="form-field" style="grid-column:1/-1;">
         <md-outlined-select id="project-retainer-hours-period" label="Periode">
@@ -1693,7 +1833,7 @@ function openProjectDialog(editId = null) {
       </div>
     </div>
     <div id="project-fields-fixed" class="form-field" style="${state.projectForm.type !== 'fixed' ? 'display:none' : ''}">
-      <md-outlined-text-field id="project-fixed-budget" label="Vaste prijs (€)" type="number" value="${state.projectForm.budget}"></md-outlined-text-field>
+      <md-outlined-text-field id="project-fixed-budget" label="Vaste prijs (€)" type="number" inputmode="decimal" value="${state.projectForm.budget}"></md-outlined-text-field>
     </div>
     <div class="form-field">
       <md-outlined-select id="project-status" label="Status">
@@ -1797,14 +1937,14 @@ function openClientDialog(editId = null) {
     </div>
     <div class="form-grid-2">
       <div class="form-field">
-        <md-outlined-text-field id="client-email" label="E-mail" value="${escapeHtml(state.clientForm.email || '')}"></md-outlined-text-field>
+        <md-outlined-text-field id="client-email" label="E-mail" type="email" inputmode="email" value="${escapeHtml(state.clientForm.email || '')}"></md-outlined-text-field>
       </div>
       <div class="form-field">
-        <md-outlined-text-field id="client-phone" label="Telefoon" value="${escapeHtml(state.clientForm.phone || '')}"></md-outlined-text-field>
+        <md-outlined-text-field id="client-phone" label="Telefoon" type="tel" inputmode="tel" value="${escapeHtml(state.clientForm.phone || '')}"></md-outlined-text-field>
       </div>
     </div>
     <div class="form-field">
-      <md-outlined-text-field id="client-debiteur" label="Debiteurnummer (optioneel)" value="${escapeHtml(state.clientForm.debiteurNr || '')}"></md-outlined-text-field>
+      <md-outlined-text-field id="client-debiteur" label="Debiteurnummer (optioneel)" inputmode="numeric" value="${escapeHtml(state.clientForm.debiteurNr || '')}"></md-outlined-text-field>
     </div>
     <div id="client-error" class="error-msg" style="display:none;"></div>
   `;
@@ -1867,7 +2007,7 @@ function openInvoiceCreateDialog() {
   const clientProjects = clientGroupMap[firstClient] || [];
   state.invoiceForm = { client: firstClient, date: today(), dueDate: addDays(today(), state.settings.company?.paymentDays || 30), notes: '' };
   state.selectedProjects = clientProjects.map((p) => p.id);
-  state.selectedEntries = billable.filter((e) => clientProjects.some((p) => p.id === e.projectId)).map((e) => e.id);
+  state.selectedEntries = [];
   renderInvoiceCreateContent();
   document.getElementById('invoice-create-dialog').show();
 }
@@ -1880,10 +2020,7 @@ function renderInvoiceCreateContent() {
     state.invoiceForm.client = client;
     const projs = clientGroupMap[client] || [];
     state.selectedProjects = projs.map((p) => p.id);
-    state.selectedEntries = billable.filter((e) => {
-      const p = projs.find((pr) => pr.id === e.projectId);
-      return p?.type === 'hourly';
-    }).map((e) => e.id);
+    state.selectedEntries = [];
     renderInvoiceCreateContent();
   };
   const toggleProject = (pid) => {
@@ -1894,11 +2031,16 @@ function renderInvoiceCreateContent() {
       if (p?.type === 'hourly') state.selectedEntries = state.selectedEntries.filter((id) => state.entries.find((e) => e.id === id)?.projectId !== pid);
     } else {
       state.selectedProjects = [...state.selectedProjects, pid];
-      if (p?.type === 'hourly') {
-        const toAdd = billable.filter((e) => e.projectId === pid).map((e) => e.id);
-        state.selectedEntries = [...new Set([...state.selectedEntries, ...toAdd])];
-      }
     }
+    renderInvoiceCreateContent();
+  };
+  const selectAllEntries = (pid) => {
+    const toAdd = billable.filter((e) => e.projectId === pid).map((e) => e.id);
+    state.selectedEntries = [...new Set([...state.selectedEntries, ...toAdd])];
+    renderInvoiceCreateContent();
+  };
+  const selectNoEntries = (pid) => {
+    state.selectedEntries = state.selectedEntries.filter((id) => state.entries.find((e) => e.id === id)?.projectId !== pid);
     renderInvoiceCreateContent();
   };
   const projectAmount = (p) => p.type === 'fixed' ? p.budget : p.type === 'retainer' ? p.rate : p.type === 'retainer_hours' ? retainerHoursAmount(p) : null;
@@ -1922,20 +2064,29 @@ function renderInvoiceCreateContent() {
             const projEntries = billable.filter((e) => e.projectId === p.id);
             return `
               <div>
-                <label class="invoice-project-row" style="background:${projSelected ? 'var(--md-sys-color-surface-container-high)' : 'transparent'}">
+                <label class="invoice-project-row" style="background:${projSelected ? 'var(--md-sys-color-surface-container-high)' : 'transparent'};color:var(--md-sys-color-on-surface);">
                   <md-checkbox touch-target="wrapper" ${projSelected ? 'checked' : ''} data-id="${p.id}" data-type="project"></md-checkbox>
-                  <span style="flex:1;font-weight:700;font-size:13px;">${escapeHtml(p.name)}</span>
+                  <span style="flex:1;font-weight:700;font-size:13px;color:inherit;">${escapeHtml(p.name)}</span>
                   <span style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">${typeLabel(p.type)}</span>
                   ${p.type !== 'hourly' ? `<span style="font-weight:700;color:var(--md-sys-color-primary);">${formatEur(projectAmount(p) ?? 0)}</span>` : ''}
                 </label>
-                ${projSelected && p.type === 'hourly' ? projEntries.map((e) => `
-                  <label class="invoice-entry-row">
+                ${projSelected && p.type === 'hourly' ? `
+                  <div style="display:flex;gap:12px;margin-bottom:6px;margin-left:36px;font-size:11px;">
+                    <button type="button" class="invoice-select-btn" data-action="select-all" data-pid="${p.id}">Selecteer alle</button>
+                    <button type="button" class="invoice-select-btn" data-action="select-none" data-pid="${p.id}">Selecteer geen</button>
+                  </div>
+                  ${projEntries.map((e) => {
+            const lbl = state.labels?.find((l) => l.id === e.labelId)?.name;
+            const entryDesc = lbl ? `${lbl}: ${e.description || '—'}` : (e.description || '—');
+            return `
+                  <label class="invoice-entry-row" style="color:var(--md-sys-color-on-surface);">
                     <md-checkbox touch-target="wrapper" ${state.selectedEntries.includes(e.id) ? 'checked' : ''} data-id="${e.id}" data-type="entry"></md-checkbox>
-                    <span style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(e.description || '—')}</span>
-                    <span style="font-size:11px;">${formatDate(e.date)}</span>
-                    <span style="font-weight:700;font-size:12px;">${e.hours}u</span>
+                    <span style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;">${escapeHtml(entryDesc)}</span>
+                    <span style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">${formatDate(e.date)}</span>
+                    <span style="font-weight:700;font-size:12px;color:var(--md-sys-color-on-surface);">${e.hours}u</span>
                   </label>
-                `).join('') : ''}
+                `;
+          }).join('')}` : ''}
               </div>
             `;
           }).join('')}
@@ -1946,16 +2097,12 @@ function renderInvoiceCreateContent() {
       <span class="card-label">Totaal</span>
       <span style="font-weight:900;font-size:20px;">${formatEur(calcInvoiceTotal())}</span>
     </div>
-    <div class="form-grid-2">
-      <div class="form-field">
-        <md-outlined-text-field id="invoice-date" label="Factuurdatum" type="date" value="${state.invoiceForm.date}"></md-outlined-text-field>
-      </div>
-      <div class="form-field">
-        <md-outlined-text-field id="invoice-due-date" label="Vervaldatum" type="date" value="${state.invoiceForm.dueDate}"></md-outlined-text-field>
-      </div>
+    <div class="form-field">
+      <md-outlined-text-field id="invoice-date" label="Factuurdatum" type="date" value="${state.invoiceForm.date}"></md-outlined-text-field>
     </div>
     <div class="form-field">
-      <md-outlined-text-field id="invoice-notes" label="Notities (optioneel)" value="${escapeHtml(state.invoiceForm.notes || '')}"></md-outlined-text-field>
+      <label class="card-label" style="display:block;margin-bottom:6px;">Opmerkingen (optioneel)</label>
+      <textarea id="invoice-notes" rows="2" placeholder="Bijv. referentie, betalingsinstructie..." style="padding:12px;border:1px solid var(--md-sys-color-outline);border-radius:8px;background:var(--md-sys-color-surface);color:var(--md-sys-color-on-surface);font-family:inherit;font-size:14px;resize:vertical;">${escapeHtml(state.invoiceForm.notes || '')}</textarea>
     </div>
   `;
   content.querySelector('#invoice-client')?.addEventListener('change', (e) => handleClientChange(e.target.value));
@@ -1965,22 +2112,38 @@ function renderInvoiceCreateContent() {
   content.querySelectorAll('md-checkbox[data-type="entry"]').forEach((cb) => {
     cb.addEventListener('change', () => toggleEntry(cb.dataset.id));
   });
+  content.querySelectorAll('[data-action="select-all"]').forEach((btn) => {
+    btn.addEventListener('click', () => selectAllEntries(btn.dataset.pid));
+  });
+  content.querySelectorAll('[data-action="select-none"]').forEach((btn) => {
+    btn.addEventListener('click', () => selectNoEntries(btn.dataset.pid));
+  });
 }
 
 function createInvoice() {
-  if (!state.invoiceForm.client || state.selectedProjects.length === 0) return;
+  const projectIdsForInv = state.selectedProjects.filter((pid) => {
+    const p = state.projects.find((x) => x.id === pid);
+    if (!p) return false;
+    if (p.type !== 'hourly') return true;
+    return state.selectedEntries.some((eid) => state.entries.find((e) => e.id === eid)?.projectId === pid);
+  });
+  if (!state.invoiceForm.client || projectIdsForInv.length === 0) {
+    showSnackbar('Selecteer minstens één project of urenregel');
+    return;
+  }
   const content = document.getElementById('invoice-create-content');
   state.invoiceForm.date = content.querySelector('#invoice-date')?.value || state.invoiceForm.date;
-  state.invoiceForm.dueDate = content.querySelector('#invoice-due-date')?.value || state.invoiceForm.dueDate;
+  const paymentDays = state.settings.company?.paymentDays ?? 30;
+  state.invoiceForm.dueDate = addDays(state.invoiceForm.date, paymentDays);
   state.invoiceForm.notes = content.querySelector('#invoice-notes')?.value || '';
   const invId = uid();
-  const projectNames = state.selectedProjects.map((pid) => state.projects.find((p) => p.id === pid)?.name).filter(Boolean).join(', ');
+  const projectNames = projectIdsForInv.map((pid) => state.projects.find((p) => p.id === pid)?.name).filter(Boolean).join(', ');
   const inv = {
     id: invId,
     number: `INV-${String(state.invoices.length + 1).padStart(3, '0')}`,
     client: state.invoiceForm.client,
     projectName: projectNames,
-    projectIds: state.selectedProjects,
+    projectIds: projectIdsForInv,
     date: state.invoiceForm.date,
     dueDate: state.invoiceForm.dueDate,
     notes: state.invoiceForm.notes,
@@ -2009,6 +2172,7 @@ function createInvoice() {
 }
 
 function openInvoicePdfDialog(inv) {
+  state.pdfInvoice = inv;
   const content = document.getElementById('invoice-pdf-content');
   const co = state.settings.company || {};
   const client = state.clients.find((c) => c.name.toLowerCase() === inv.client.toLowerCase()) || {};
@@ -2019,12 +2183,15 @@ function openInvoicePdfDialog(inv) {
   const totalIncBtw = exclBtw + btw;
   const fmt = (n) => new Intl.NumberFormat('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
   const rows = [];
+  const getLabelName = (id) => state.labels?.find((l) => l.id === id)?.name || '';
   invoiceProjects.forEach((p) => {
     if (!p) return;
     if (p.type === 'hourly') {
       const projEntries = invEntries.filter((e) => e.projectId === p.id);
       projEntries.forEach((e) => {
-        rows.push({ nr: rows.length + 1, desc: e.description || p.name, qty: e.hours, unit: 'uur', price: p.rate, total: e.hours * p.rate });
+        const labelName = getLabelName(e.labelId);
+        const desc = labelName ? `${labelName}: ${e.description || p.name}` : (e.description || p.name);
+        rows.push({ nr: rows.length + 1, desc, qty: e.hours, unit: 'uur', price: p.rate, total: e.hours * p.rate });
       });
       if (projEntries.length === 0) rows.push({ nr: rows.length + 1, desc: p.name, qty: 1, unit: 'st.', price: exclBtw, total: exclBtw });
     } else if (p.type === 'fixed') {
@@ -2054,7 +2221,7 @@ function openInvoicePdfDialog(inv) {
             <tr><td style="font-weight:bold;padding-right:16px;padding-bottom:2px;">Factuurdatum</td><td>${formatDate(inv.date)}</td></tr>
             <tr><td style="font-weight:bold;padding-right:16px;padding-bottom:2px;">Vervaldatum</td><td>${formatDate(inv.dueDate)}</td></tr>
             <tr><td style="font-weight:bold;padding-right:16px;padding-bottom:2px;">Factuurnummer</td><td>${escapeHtml(inv.number)}</td></tr>
-            ${inv.notes ? `<tr><td style="font-weight:bold;padding-right:16px;">Referentie</td><td>${escapeHtml(inv.notes)}</td></tr>` : ''}
+            ${inv.notes ? `<tr><td style="font-weight:bold;padding-right:16px;">Opmerkingen</td><td>${escapeHtml(inv.notes)}</td></tr>` : ''}
           </table>
         </div>
       </div>
@@ -2110,21 +2277,48 @@ function openInvoicePdfDialog(inv) {
 function printInvoicePdf() {
   const printEl = document.getElementById('inv-print');
   if (!printEl) return;
-  const w = window.open('', '_blank');
-  const styles = `
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; font-size: 11px; color: #222; padding: 40px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px 4px; border-bottom: 1px solid #eee; }
-    th { border-bottom: 2px solid #222; text-align: left; }
-    img { max-height: 60px; max-width: 200px; object-fit: contain; }
-  `;
-  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Factuur</title><style>' + styles + '</style></head><body>');
-  w.document.write(printEl.innerHTML);
-  w.document.write('</body></html>');
-  w.document.close();
-  w.focus();
-  setTimeout(() => { w.print(); }, 600);
+  const inv = state.pdfInvoice;
+  const filename = (inv?.number || 'factuur').replace(/\s+/g, '-') + '.pdf';
+
+  const doPrint = () => {
+    const w = window.open('', '_blank');
+    if (!w) {
+      showSnackbar('Pop-up geblokkeerd. Sta pop-ups toe of gebruik Download PDF.');
+      return;
+    }
+    const styles = `
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; font-size: 11px; color: #222; padding: 40px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 8px 4px; border-bottom: 1px solid #eee; }
+      th { border-bottom: 2px solid #222; text-align: left; }
+      img { max-height: 60px; max-width: 200px; object-fit: contain; }
+    `;
+    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Factuur</title><style>' + styles + '</style></head><body>');
+    w.document.write(printEl.innerHTML);
+    w.document.write('</body></html>');
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); }, 600);
+  };
+
+  if (typeof html2pdf !== 'undefined') {
+    const opt = {
+      margin: 10,
+      filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    };
+    html2pdf().set(opt).from(printEl).save()
+      .then(() => showSnackbar('PDF gedownload'))
+      .catch((err) => {
+        console.warn('html2pdf failed:', err);
+        doPrint();
+      });
+  } else {
+    doPrint();
+  }
 }
 
 // ─── Tab & Init ───────────────────────────────────────────────────────────
@@ -2309,7 +2503,7 @@ function init() {
     const active = document.activeElement;
     const isEditing = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
     if (isEditing || dialogOpen) return;
-    if (e.key === 'n') {
+    if (e.key === 'u') {
       if (state.projects.length > 0) {
         e.preventDefault();
         openQuickLogDialog();

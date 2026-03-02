@@ -501,6 +501,29 @@
       color: var(--md-sys-color-on-primary-container);
       border-color: var(--md-sys-color-primary);
     }
+    .label-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .label-pill {
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid var(--md-sys-color-outline);
+      border-radius: 8px;
+      background: var(--md-sys-color-surface);
+      color: var(--md-sys-color-on-surface-variant);
+      cursor: pointer;
+      transition: all 0.1s;
+      font-family: inherit;
+    }
+    .label-pill:hover { border-color: var(--md-sys-color-primary); }
+    .label-pill.selected {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-color: var(--md-sys-color-primary);
+    }
     .hours-quick-row {
       display: flex;
       gap: 8px;
@@ -528,7 +551,8 @@
     .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .form-field { margin-bottom: 14px; }
     .form-field md-outlined-text-field,
-    .form-field md-outlined-select { width: 100%; }
+    .form-field md-outlined-select,
+    .form-field textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
     .invoice-project-list {
       border: 1px solid var(--md-sys-color-outline-variant);
       border-radius: 8px;
@@ -552,6 +576,15 @@
       cursor: pointer;
     }
     .invoice-entry-row:last-child { border-bottom: none; }
+    .invoice-select-btn {
+      padding: 0;
+      color: var(--md-sys-color-primary) !important;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: inherit;
+    }
     .payment-days-row {
       display: flex;
       gap: 8px;
@@ -583,13 +616,27 @@
     @media (max-width: 600px) {
       .fab-uren { bottom: 82px; }
     }
+    .form-hint {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px;
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 12px;
+      font-size: 14px;
+      color: var(--md-sys-color-on-surface-variant);
+      margin-bottom: 8px;
+    }
+    .form-hint md-text-button {
+      align-self: flex-start;
+    }
     .error-msg {
-      color: var(--md-sys-color-error);
+      color: var(--md-sys-color-on-error-container);
       font-size: 12px;
-      background: color-mix(in srgb, var(--md-sys-color-error) 10%, transparent);
-      border: 1px solid var(--md-sys-color-error);
-      padding: 8px 12px;
-      border-radius: 8px;
+      background: var(--md-sys-color-error-container);
+      padding: 12px 16px;
+      border-radius: 12px;
+      margin-top: 8px;
     }
     md-dialog { --md-dialog-container-color: var(--md-sys-color-surface); }
     md-dialog:not([open]) { display: none !important; }
@@ -675,11 +722,20 @@
     }
     .login-screen {
       position: fixed; inset: 0; z-index: 10000;
-      display: flex; align-items: center; justify-content: center;
-      background: var(--md-sys-color-background);
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center;
       padding: 24px;
+      overflow-y: auto; overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      background: var(--md-sys-color-background);
     }
-    .login-card { max-width: 360px; width: 100%; }
+    @media (max-width: 600px) {
+      .login-screen {
+        justify-content: flex-start; padding-top: min(10vh, 48px);
+        padding-bottom: 45vh;
+      }
+    }
+    .login-card { max-width: 360px; width: 100%; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -689,7 +745,7 @@
       <p style="font-size:13px;color:var(--md-sys-color-on-surface-variant);margin:0 0 24px;">Log in om je data te synchroniseren</p>
       <div id="login-form-wrap">
         <div class="form-field">
-          <md-outlined-text-field id="login-email" label="E-mail" type="email" autocomplete="off" style="width:100%;"></md-outlined-text-field>
+          <md-outlined-text-field id="login-email" label="E-mail" type="email" inputmode="email" autocomplete="off" style="width:100%;"></md-outlined-text-field>
         </div>
         <div class="form-field">
           <md-outlined-text-field id="login-password" label="Wachtwoord" type="password" autocomplete="off" style="width:100%;"></md-outlined-text-field>
@@ -771,7 +827,7 @@
     </div>
   </div>
 
-  <md-fab class="fab-uren" variant="primary" label="Uren loggen (Ctrl+N)" aria-label="Uren loggen (Ctrl+N)" id="fab-quick-log" style="display:none;">
+  <md-fab class="fab-uren" variant="primary" label="Uren loggen (Ctrl+U)" aria-label="Uren loggen (Ctrl+U)" id="fab-quick-log" style="display:none;">
     <md-icon slot="icon">add</md-icon>
   </md-fab>
 
@@ -820,7 +876,7 @@
     <div slot="headline">Factuur</div>
     <div slot="content" id="invoice-pdf-content"></div>
     <div slot="actions">
-      <md-filled-button id="btn-pdf-print">Download / Print PDF</md-filled-button>
+      <md-filled-button id="btn-pdf-print">Download PDF</md-filled-button>
       <md-text-button id="btn-pdf-close">Sluiten</md-text-button>
     </div>
   </md-dialog>
@@ -847,6 +903,7 @@
   </md-dialog>
 
   </div><!-- /app-shell -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" integrity="sha512-GsLlZN/3F2ErC5ifS5QtgpiJtWd43JWSuIgh7mbzZ8zBps+dvLusV+eNQATqgA/HdeKFVgA5v3S/cIrLF7QnIg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="firebase-config.js"></script>
   <script>
     // Toon direct inlogscherm als Firebase geconfigureerd is (voorkomt flits van app zonder login)

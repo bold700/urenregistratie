@@ -102,5 +102,14 @@
 
     document.getElementById('login-btn').onclick = () => doLogin(false);
     document.getElementById('signup-btn').onclick = () => doLogin(true);
+
+    const formWrap = document.getElementById('login-form-wrap');
+    const scrollButtonsIntoView = () => {
+      const btnWrap = formWrap?.querySelector('div:last-of-type');
+      if (btnWrap) setTimeout(() => btnWrap.scrollIntoView({ block: 'end', behavior: 'smooth' }), 300);
+    };
+    formWrap?.addEventListener('focusin', (e) => {
+      if (e.target.closest('md-outlined-text-field')) scrollButtonsIntoView();
+    }, true);
   }
 })();

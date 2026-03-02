@@ -7,8 +7,16 @@
 3. **Authentication** → Sign-in method → Schakel **E-mail/wachtwoord** in
 4. **Firestore Database** → Create database → Start in test mode (of production met rules)
 5. **Project settings** (tandwiel) → Your apps → Add app (Web) → Kopieer de config
-6. Plak de config in `firebase-config.js` (vervang de placeholder waarden)
+6. Kopieer `firebase-config.example.js` naar `firebase-config.js` en plak je config
 7. **Firestore** → Rules → Plak de inhoud van `firestore.rules`
+
+### API key beveiligen (belangrijk)
+
+Ga naar [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials:
+1. Klik op je API key
+2. Bij **Application restrictions** kies **HTTP referrers**
+3. Voeg toe: `https://*.vercel.app/*`, `http://localhost:*`, `https://jouwdomein.nl/*`
+4. Sla op – de key werkt nu alleen vanaf deze domeinen
 
 ## 2. Vercel deployen
 

@@ -1,9 +1,10 @@
 /**
  * Firebase config – vul je eigen waarden in vanuit Firebase Console
- * Project settings → Your apps → Add app (Web) → Copy config
+ * Kopieer firebase-config.example.js en vul de waarden in.
+ * BELANGRIJK: Beperk je API key in Google Cloud Console (zie DEPLOY.md)
  */
 window.firebaseConfig = {
-  apiKey: 'AIzaSyADe9eI6LIzrs-VNJP5tRq7NJN2abJ0izg',
+  apiKey: 'VUL_JE_API_KEY_IN',
   authDomain: 'urenregistratie-e996d.firebaseapp.com',
   projectId: 'urenregistratie-e996d',
   storageBucket: 'urenregistratie-e996d.firebasestorage.app',
