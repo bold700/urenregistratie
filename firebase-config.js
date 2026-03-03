@@ -4,7 +4,7 @@
  * BELANGRIJK: Beperk je API key in Google Cloud Console (zie DEPLOY.md)
  */
 window.firebaseConfig = {
-  apiKey: 'VUL_JE_API_KEY_IN',
+  apiKey: 'AIzaSyADe9eI6LIzrs-VNJP5tRq7NJN2abJ0izg',
   authDomain: 'urenregistratie-e996d.firebaseapp.com',
   projectId: 'urenregistratie-e996d',
   storageBucket: 'urenregistratie-e996d.firebasestorage.app',
