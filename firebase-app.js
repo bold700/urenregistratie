@@ -54,7 +54,7 @@ export async function firebaseLoadUserData(userId) {
     const snap = await getDoc(ref);
     return snap.exists() ? snap.data() : null;
   } catch (e) {
-    console.warn('Firebase load failed:', e);
+    console.error('[Firebase] Firestore load mislukt:', e?.code || e?.message || e);
     return null;
   }
 }

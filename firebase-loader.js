@@ -6,11 +6,13 @@
   const useFirebase = config?.apiKey && config.apiKey !== 'VUL_JE_API_KEY_IN';
 
   if (!useFirebase) {
+    console.log('[Firebase] Niet geconfigureerd – gebruik localStorage');
     loadApp();
     return;
   }
 
   try {
+    console.log('[Firebase] Initialiseren...');
     const fb = await import('./firebase-app.js');
     fb.initFirebase(config);
     const auth = fb.getFirebaseAuth();
@@ -24,20 +26,23 @@
     });
 
     if (!user) {
+      console.log('[Firebase] Geen gebruiker – toon inlogscherm');
       showLoginScreen(fb);
       return;
     }
 
+    console.log('[Firebase] Ingelogd als', user.email, '(uid:', user.uid, ')');
     const data = await fb.firebaseLoadUserData(user.uid);
     window.__firebaseUser = user;
     window.__firebase = fb;
     window.__initialData = data;
     window.__isNewFirebaseUser = !data || (!data.projects?.length && !data.entries?.length);
+    console.log('[Firebase] Data geladen:', data ? `${data.clients?.length || 0} klanten, ${data.projects?.length || 0} projecten` : 'geen data');
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app-shell').style.display = '';
     loadApp();
   } catch (e) {
-    console.warn('Firebase init failed, using localStorage:', e);
+    console.error('[Firebase] Init mislukt:', e);
     showLoginScreenWithFallback(e);
   }
 
