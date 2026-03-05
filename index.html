@@ -369,16 +369,23 @@
       width: 100%;
     }
     .capacity-bar {
-      height: 6px;
+      height: 12px;
       background: var(--md-sys-color-surface-container-high);
-      border-radius: 3px;
+      border-radius: 99px;
       overflow: hidden;
+      display: flex;
     }
     .capacity-bar-fill {
       height: 100%;
-      border-radius: 3px;
+      min-width: 2px;
+      color: var(--md-sys-color-error);
+      background-color: var(--md-sys-color-inverse-primary);
       transition: width 0.4s, background-color 0.3s;
+      border-radius: 99px;
     }
+    .capacity-bar-fill:first-child { border-radius: 99px 0 0 99px; }
+    .capacity-bar-fill:last-child { border-radius: 0 99px 99px 0; }
+    .capacity-bar-fill:only-child { border-radius: 99px; }
     .filter-row {
       display: flex;
       gap: 6px;
@@ -576,6 +583,7 @@
     .form-field { margin-bottom: 14px; }
     .form-field md-outlined-text-field,
     .form-field md-outlined-select,
+    .form-field select,
     .form-field textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
     .native-select {
       width: 100%;
@@ -661,6 +669,11 @@
       right: 20px;
       z-index: 45;
     }
+    body:has(md-dialog[open]) .fab-uren {
+      visibility: hidden;
+      pointer-events: none;
+      z-index: 0;
+    }
     @media (max-width: 600px) {
       .fab-uren { bottom: 82px; }
     }
@@ -687,6 +700,9 @@
       margin-top: 8px;
     }
     md-dialog { --md-dialog-container-color: var(--md-sys-color-surface); }
+    md-dialog::backdrop {
+      background: color-mix(in srgb, var(--md-sys-color-scrim) 80%, transparent);
+    }
     md-dialog:not([open]) { display: none !important; }
     md-dialog [slot="content"] { position: relative; }
     .danger { --md-filled-button-container-color: var(--md-sys-color-error); --md-filled-button-label-text-color: var(--md-sys-color-on-error); }

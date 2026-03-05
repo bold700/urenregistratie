@@ -604,10 +604,11 @@ let state = {
   settings: {
     weekCapacity: 40,
     company: {},
+    members: [], // [{ id, name }] – medewerkers voor capaciteitsbreakdown
   },
   statusFilter: 'active',
   entryFilter: 'all',
-  quickLogForm: { projectId: '', date: today(), hours: '', description: '', notBillable: false },
+  quickLogForm: { projectId: '', date: today(), hours: '', description: '', notBillable: false, personId: '' },
   timers: [],
   timerTickInterval: null,
   projectForm: {},
@@ -699,7 +700,7 @@ function getTimerElapsedMs(timer) {
   return Date.now() - new Date(timer.startTime).getTime();
 }
 
-function startTimer(projectId, description = '', notBillable = false) {
+function startTimer(projectId, description = '', notBillable = false, personId = '') {
   if (!projectId) return;
   const timer = {
     id: uid(),
@@ -707,6 +708,7 @@ function startTimer(projectId, description = '', notBillable = false) {
     projectId,
     description,
     notBillable,
+    personId: personId || undefined,
   };
   state.timers.push(timer);
   saveState();
@@ -739,6 +741,7 @@ function stopTimer(timerId) {
     hours,
     description: timer.description || '',
     notBillable: timer.notBillable ?? false,
+    personId: timer.personId || undefined,
     createdAt: new Date().toISOString(),
   });
   state.timers.splice(idx, 1);
@@ -835,12 +838,26 @@ function renderDashboard() {
     d.setDate(d.getDate() + diff);
     return d.toISOString().split('T')[0];
   })();
-  const hoursThisWeek = entries.filter((e) => e.date >= weekStart && e.date <= weekEnd).reduce((s, e) => s + (e.hours || 0), 0);
+  const weekEntries = entries.filter((e) => e.date >= weekStart && e.date <= weekEnd);
+  const hoursThisWeek = weekEntries.reduce((s, e) => s + (e.hours || 0), 0);
   const totalUsedThisWeek = hoursThisWeek + retainerHoursThisWeek;
   const weekCapacity = settings.weekCapacity || 40;
   const pct = Math.min(100, (totalUsedThisWeek / weekCapacity) * 100);
   const hoursLeft = Math.max(0, weekCapacity - totalUsedThisWeek);
   const overbooked = totalUsedThisWeek > weekCapacity;
+  const members = settings.members || [];
+  const hoursPerPerson = {};
+  weekEntries.forEach((e) => {
+    const pid = e.personId || '_overig';
+    hoursPerPerson[pid] = (hoursPerPerson[pid] || 0) + (e.hours || 0);
+  });
+  const personBreakdown = members
+    .filter((m) => (hoursPerPerson[m.id] || 0) > 0)
+    .map((m) => ({ id: m.id, name: m.name, hours: hoursPerPerson[m.id] || 0 }))
+    .sort((a, b) => b.hours - a.hours);
+  const overigHours = hoursPerPerson['_overig'] || 0;
+  if (overigHours > 0) personBreakdown.push({ id: '_overig', name: 'Overig', hours: overigHours });
+  if (retainerHoursThisWeek > 0) personBreakdown.push({ id: '_retainer', name: 'Retainer (vast)', hours: retainerHoursThisWeek });
   const monthSub = retainerHoursThisMonth > 0 ? `${thisMonth.length} regels + ${retainerHoursThisMonth.toFixed(0)}u retainer` : `${thisMonth.length} regels`;
   const teFactSub = vasteRetainers.length > 0
     ? `${unbilledEntries.length} urenregels + ${vasteRetainers.length} retainer${vasteRetainers.length > 1 ? 's' : ''}`
@@ -922,8 +939,24 @@ function renderDashboard() {
         </span>
       </div>
       <div class="capacity-bar">
+        ${personBreakdown.length > 0 ? personBreakdown.map((pb, i) => {
+          const segPct = totalUsedThisWeek > 0 ? (pb.hours / totalUsedThisWeek) * Math.min(100, pct) : 0;
+          const colors = ['var(--md-sys-color-primary)', 'var(--md-sys-color-secondary)', 'var(--md-sys-color-tertiary)', 'var(--md-sys-color-primary-container)', 'var(--md-sys-color-secondary-container)'];
+          const color = pb.id === '_overig' ? 'var(--md-sys-color-inverse-primary)' : pb.id === '_retainer' ? 'var(--md-sys-color-tertiary)' : colors[i % colors.length];
+          return segPct > 0 ? `<div class="capacity-bar-fill capacity-bar-segment" style="width:${segPct}%;background:${color};" title="${escapeHtml(pb.name)}: ${pb.hours.toFixed(1)}u"></div>` : '';
+        }).join('') : `
         <div class="capacity-bar-fill" style="width:${pct}%;background:${overbooked ? 'var(--md-sys-color-error)' : pct > 80 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'}"></div>
+        `}
       </div>
+      ${personBreakdown.length > 0 ? `
+      <div class="capacity-breakdown" style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;font-size:11px;color:var(--md-sys-color-on-surface-variant);">
+        ${personBreakdown.map((pb, i) => {
+          const colors = ['var(--md-sys-color-primary)', 'var(--md-sys-color-secondary)', 'var(--md-sys-color-tertiary)', 'var(--md-sys-color-primary-container)', 'var(--md-sys-color-secondary-container)'];
+          const color = pb.id === '_overig' ? 'var(--md-sys-color-inverse-primary)' : pb.id === '_retainer' ? 'var(--md-sys-color-tertiary)' : colors[i % colors.length];
+          return `<span style="display:flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:2px;background:${color};flex-shrink:0;"></span>${escapeHtml(pb.name)}: ${pb.hours.toFixed(1)}u</span>`;
+        }).join('')}
+      </div>
+      ` : ''}
     </div>
     ${(() => {
       const topClients = getTopClientsData(entries, projects, 5);
@@ -1230,7 +1263,7 @@ function renderUren() {
             </div>
           ` : `
             <div class="timer-input-row">
-              <md-outlined-select id="timer-project-select" label="Project" value="${availableProjects[0]?.id || ''}" menu-positioning="absolute">
+              <md-outlined-select id="timer-project-select" label="Project" value="${availableProjects[0]?.id || ''}" menu-positioning="absolute" style="flex:1;min-width:0;">
                 ${availableProjects.map((p) => `<md-select-option value="${p.id}"><div slot="headline">${escapeHtml(p.name)}</div><div slot="supporting-text">${escapeHtml(p.client || '—')}</div></md-select-option>`).join('')}
               </md-outlined-select>
               <md-outlined-text-field id="timer-description-input" label="Omschrijving (optioneel)" placeholder="Wat doe je?"></md-outlined-text-field>
@@ -1238,6 +1271,13 @@ function renderUren() {
           `}
         </div>
         ${availableProjects.length <= 4 ? `<md-outlined-text-field id="timer-description-input" label="Omschrijving (optioneel)" placeholder="Wat doe je?" style="margin-top:8px;width:100%;max-width:320px;"></md-outlined-text-field>` : ''}
+        ${(state.settings?.members || []).length > 0 ? `
+        <div class="form-field" style="margin-top:8px;max-width:200px;">
+          <md-outlined-select id="timer-person-select" label="Wie werkt" value="${(state.settings.members || [])[0]?.id || ''}" menu-positioning="absolute">
+            ${(state.settings.members || []).map((m) => `<md-select-option value="${escapeHtml(m.id)}"><div slot="headline">${escapeHtml(m.name)}</div></md-select-option>`).join('')}
+          </md-outlined-select>
+        </div>
+        ` : ''}
         <div class="timer-actions-row">
           <md-filled-button id="btn-timer-start"><md-icon slot="icon">play_arrow</md-icon> Start timer</md-filled-button>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
@@ -1358,7 +1398,9 @@ function renderUren() {
     }
     const desc = el.querySelector('#timer-description-input')?.value?.trim() || '';
     const notBillable = el.querySelector('#timer-not-billable')?.checked ?? false;
-    startTimer(projectId, desc, notBillable);
+    const personSelect = el.querySelector('#timer-person-select');
+    const personId = personSelect ? personSelect.value || '' : '';
+    startTimer(projectId, desc, notBillable, personId);
   });
   el.querySelectorAll('.timer-project-pill').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1760,6 +1802,21 @@ function renderSettings() {
       </div>
     </div>
     <div class="card" style="margin-bottom:20px;">
+      <div class="card-label" style="margin-bottom:14px;">Medewerkers</div>
+      <p style="font-size:12px;color:var(--md-sys-color-on-surface-variant);margin:0 0 12px;">Kies bij het loggen van uren wie de uren heeft gelogd. De capaciteitsbalk toont dan een breakdown per persoon.</p>
+      <div class="member-edit-list" style="display:flex;flex-direction:column;gap:8px;">
+        ${(state.settings.members || []).map((m) => `
+          <div class="member-edit-row" style="display:flex;align-items:center;gap:8px;">
+            <md-outlined-text-field data-member-id="${escapeHtml(m.id)}" value="${escapeHtml(m.name)}" style="flex:1;" label="Naam"></md-outlined-text-field>
+            <md-icon-button data-action="delete-member" data-member-id="${escapeHtml(m.id)}" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>
+          </div>
+        `).join('')}
+      </div>
+      <div style="margin-top:12px;">
+        <md-outlined-button id="btn-add-member">+ Medewerker toevoegen</md-outlined-button>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:20px;">
       <div class="card-label" style="margin-bottom:14px;">Capaciteitsplanning</div>
       <div class="form-field">
         <md-outlined-text-field id="settings-week-capacity" label="Weekcapaciteit (uren)" type="number" inputmode="numeric" value="${state.settings.weekCapacity || 40}"></md-outlined-text-field>
@@ -1796,6 +1853,24 @@ function renderSettings() {
       <md-icon-button data-action="delete-label" data-label-id="" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>
     `;
     list.appendChild(row);
+  });
+  el.querySelector('#btn-add-member')?.addEventListener('click', () => {
+    const list = el.querySelector('.member-edit-list');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'member-edit-row';
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    row.innerHTML = `
+      <md-outlined-text-field data-member-id="mem-${uid()}" value="" style="flex:1;" label="Naam"></md-outlined-text-field>
+      <md-icon-button data-action="delete-member" data-member-id="" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>
+    `;
+    list.appendChild(row);
+  });
+  el.querySelectorAll('[data-action="delete-member"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('.member-edit-row');
+      if (row) row.remove();
+    });
   });
   el.querySelectorAll('[data-action="delete-label"]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1905,6 +1980,15 @@ function renderSettings() {
     company.btw = document.getElementById('settings-company-btw')?.value ?? company.btw;
     state.settings.company = company;
     state.settings.weekCapacity = Number(document.getElementById('settings-week-capacity')?.value) || 40;
+
+    const memberFields = document.querySelectorAll('.member-edit-row md-outlined-text-field');
+    const newMembers = [];
+    memberFields.forEach((tf) => {
+      const id = tf.dataset?.memberId;
+      const name = (tf.value || '').trim();
+      if (name) newMembers.push({ id: id || 'mem-' + uid(), name });
+    });
+    state.settings.members = newMembers;
 
     const labelFields = document.querySelectorAll('.label-edit-row md-outlined-text-field');
     const newLabels = [];
@@ -2175,7 +2259,9 @@ function executePendingDelete() {
 function openQuickLogDialog() {
   const activeProjects = state.projects.filter((p) => p.status === 'active');
   const firstId = activeProjects[0]?.id || '';
-  state.quickLogForm = { projectId: firstId, date: today(), hours: '', description: '', labelId: '', notBillable: false };
+  const members = state.settings?.members || [];
+  const firstPersonId = members[0]?.id || '';
+  state.quickLogForm = { projectId: firstId, date: today(), hours: '', description: '', labelId: '', notBillable: false, personId: firstPersonId };
   const content = document.getElementById('quick-log-content');
   content.innerHTML = `
     ${activeProjects.length <= 4 ? `
@@ -2192,10 +2278,9 @@ function openQuickLogDialog() {
       </div>
     ` : `
       <div class="form-field">
-        <label class="card-label" for="quick-project">Project</label>
-        <select id="quick-project" class="native-select">
-          ${activeProjects.map((p) => `<option value="${p.id}" ${p.id === firstId ? 'selected' : ''}>${escapeHtml(p.name)}${p.client ? ' · ' + escapeHtml(p.client) : ''}</option>`).join('')}
-        </select>
+        <md-outlined-select id="quick-project" label="Project" value="${firstId}" menu-positioning="absolute">
+          ${activeProjects.map((p) => `<md-select-option value="${p.id}"><div slot="headline">${escapeHtml(p.name)}</div><div slot="supporting-text">${escapeHtml(p.client || '—')}</div></md-select-option>`).join('')}
+        </md-outlined-select>
       </div>
     `}
     <div class="form-field">
@@ -2211,13 +2296,19 @@ function openQuickLogDialog() {
     <div class="form-field">
       <md-outlined-text-field id="quick-date" label="Datum" type="date" value="${today()}"></md-outlined-text-field>
     </div>
+    ${(state.settings?.members || []).length > 0 ? `
+    <div class="form-field">
+      <md-outlined-select id="quick-person" label="Wie heeft gewerkt" value="${state.quickLogForm.personId || (state.settings.members || [])[0]?.id || ''}" menu-positioning="absolute">
+        ${(state.settings.members || []).map((m) => `<md-select-option value="${escapeHtml(m.id)}"><div slot="headline">${escapeHtml(m.name)}</div></md-select-option>`).join('')}
+      </md-outlined-select>
+    </div>
+    ` : ''}
     ${state.labels?.length > 0 ? `
     <div class="form-field">
-      <label class="card-label" for="quick-label">Onderwerp / type werk</label>
-      <select id="quick-label" class="native-select">
-        <option value="" ${!state.quickLogForm.labelId ? 'selected' : ''}>Geen</option>
-        ${state.labels.map((l) => `<option value="${escapeHtml(l.id)}" ${state.quickLogForm.labelId === l.id ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
-      </select>
+      <md-outlined-select id="quick-label" label="Onderwerp / type werk" value="${state.quickLogForm.labelId || ''}" menu-positioning="absolute">
+        <md-select-option value=""><div slot="headline">Geen</div></md-select-option>
+        ${state.labels.map((l) => `<md-select-option value="${escapeHtml(l.id)}"><div slot="headline">${escapeHtml(l.name)}</div></md-select-option>`).join('')}
+      </md-outlined-select>
     </div>
     ` : ''}
     <div class="form-field">
@@ -2247,6 +2338,8 @@ function openQuickLogDialog() {
   });
   const projectSelect = content.querySelector('#quick-project');
   if (projectSelect) projectSelect.addEventListener('change', () => { state.quickLogForm.projectId = projectSelect.value; });
+  const personSelect = content.querySelector('#quick-person');
+  if (personSelect) personSelect.addEventListener('change', () => { state.quickLogForm.personId = personSelect.value || ''; });
   content.querySelector('#quick-hours')?.addEventListener('input', (e) => { state.quickLogForm.hours = e.target.value; });
   content.querySelector('#quick-date')?.addEventListener('input', (e) => { state.quickLogForm.date = e.target.value; });
   content.querySelector('#quick-description')?.addEventListener('input', (e) => { state.quickLogForm.description = e.target.value; });
@@ -2260,6 +2353,8 @@ function saveQuickLog() {
   const form = state.quickLogForm;
   const projectSelect = document.querySelector('#quick-project');
   if (projectSelect) form.projectId = projectSelect.value;
+  const personSelect = document.querySelector('#quick-person');
+  if (personSelect) form.personId = personSelect.value || '';
   const hoursInput = document.querySelector('#quick-hours');
   if (hoursInput) form.hours = hoursInput.value;
   const dateInput = document.querySelector('#quick-date');
@@ -2275,12 +2370,13 @@ function saveQuickLog() {
   const hours = parseFloat(form.hours);
   if (!form.hours || hours <= 0) { errEl.textContent = 'Vul uren in'; errEl.style.display = 'block'; return; }
   const entryId = uid();
-  const { labelId, ...rest } = form;
+  const { labelId, personId, ...rest } = form;
   state.entries.push({
     ...rest,
     id: entryId,
     hours,
     labelId: labelId || undefined,
+    personId: personId || undefined,
     createdAt: new Date().toISOString(),
   });
   saveState();
@@ -2314,18 +2410,18 @@ function openProjectDialog(editId = null) {
       </div>
     ` : `
       <div class="form-field">
-        <md-outlined-select id="project-client" label="Klant *" menu-positioning="absolute">
+        <md-outlined-select id="project-client" label="Klant *" value="${escapeHtml(state.projectForm.client || '')}" menu-positioning="absolute" required>
           <md-select-option value=""><div slot="headline">Selecteer klant...</div></md-select-option>
           ${clients.map((c) => `<md-select-option value="${escapeHtml(c.name)}" ${state.projectForm.client === c.name ? 'selected' : ''}><div slot="headline">${escapeHtml(c.name)}</div></md-select-option>`).join('')}
         </md-outlined-select>
       </div>
     `}
     <div class="form-field">
-      <md-outlined-select id="project-type" label="Facturatie type" menu-positioning="absolute">
-        <md-select-option value="hourly" ${state.projectForm.type === 'hourly' ? 'selected' : ''}><div slot="headline">Per uur</div></md-select-option>
-        <md-select-option value="fixed" ${state.projectForm.type === 'fixed' ? 'selected' : ''}><div slot="headline">Vaste prijs</div></md-select-option>
-        <md-select-option value="retainer" ${state.projectForm.type === 'retainer' ? 'selected' : ''}><div slot="headline">Retainer (vast bedrag per periode)</div></md-select-option>
-        <md-select-option value="retainer_hours" ${state.projectForm.type === 'retainer_hours' ? 'selected' : ''}><div slot="headline">Retainer (uren per periode)</div></md-select-option>
+      <md-outlined-select id="project-type" label="Facturatie type" value="${state.projectForm.type || 'hourly'}" menu-positioning="absolute">
+        <md-select-option value="hourly"><div slot="headline">Per uur</div></md-select-option>
+        <md-select-option value="fixed"><div slot="headline">Vaste prijs</div></md-select-option>
+        <md-select-option value="retainer"><div slot="headline">Retainer (vast bedrag per periode)</div></md-select-option>
+        <md-select-option value="retainer_hours"><div slot="headline">Retainer (uren per periode)</div></md-select-option>
       </md-outlined-select>
     </div>
     <div id="project-fields-hourly" class="form-grid-2" style="${state.projectForm.type !== 'hourly' ? 'display:none' : ''}">
@@ -2341,10 +2437,10 @@ function openProjectDialog(editId = null) {
         <md-outlined-text-field id="project-retainer-rate" label="Bedrag (€)" type="number" inputmode="decimal" value="${state.projectForm.rate}"></md-outlined-text-field>
       </div>
       <div class="form-field">
-        <md-outlined-select id="project-period" label="Periode" menu-positioning="absolute">
+        <md-outlined-select id="project-period" label="Periode" value="${state.projectForm.period || 'month'}" menu-positioning="absolute">
           <md-select-option value="week"><div slot="headline">Per week</div></md-select-option>
           <md-select-option value="4weeks"><div slot="headline">Per 4 weken</div></md-select-option>
-          <md-select-option value="month" ${(state.projectForm.period || 'month') === 'month' ? 'selected' : ''}><div slot="headline">Per maand</div></md-select-option>
+          <md-select-option value="month"><div slot="headline">Per maand</div></md-select-option>
           <md-select-option value="quarter"><div slot="headline">Per kwartaal</div></md-select-option>
         </md-outlined-select>
       </div>
@@ -2357,8 +2453,8 @@ function openProjectDialog(editId = null) {
         <md-outlined-text-field id="project-retainer-hours-rate" label="Uurtarief (€)" type="number" inputmode="decimal" value="${state.projectForm.rate}" placeholder="bijv. 108"></md-outlined-text-field>
       </div>
       <div class="form-field" style="grid-column:1/-1;">
-        <md-outlined-select id="project-retainer-hours-period" label="Periode" menu-positioning="absolute">
-          <md-select-option value="week" ${(state.projectForm.period || 'week') === 'week' ? 'selected' : ''}><div slot="headline">Per week</div></md-select-option>
+        <md-outlined-select id="project-retainer-hours-period" label="Periode" value="${state.projectForm.period || 'week'}" menu-positioning="absolute">
+          <md-select-option value="week"><div slot="headline">Per week</div></md-select-option>
           <md-select-option value="4weeks"><div slot="headline">Per 4 weken</div></md-select-option>
           <md-select-option value="month"><div slot="headline">Per maand</div></md-select-option>
           <md-select-option value="quarter"><div slot="headline">Per kwartaal</div></md-select-option>
@@ -2369,9 +2465,9 @@ function openProjectDialog(editId = null) {
       <md-outlined-text-field id="project-fixed-budget" label="Vaste prijs (€)" type="number" inputmode="decimal" value="${state.projectForm.budget}"></md-outlined-text-field>
     </div>
     <div class="form-field">
-      <md-outlined-select id="project-status" label="Status" menu-positioning="absolute">
-        <md-select-option value="active" ${state.projectForm.status === 'active' ? 'selected' : ''}><div slot="headline">Actief</div></md-select-option>
-        <md-select-option value="inactive" ${state.projectForm.status === 'inactive' ? 'selected' : ''}><div slot="headline">Inactief</div></md-select-option>
+      <md-outlined-select id="project-status" label="Status" value="${state.projectForm.status || 'active'}" menu-positioning="absolute">
+        <md-select-option value="active"><div slot="headline">Actief</div></md-select-option>
+        <md-select-option value="inactive"><div slot="headline">Inactief</div></md-select-option>
       </md-outlined-select>
     </div>
     <div class="form-field">
@@ -2583,7 +2679,7 @@ function renderInvoiceCreateContent() {
   };
   content.innerHTML = `
     <div class="form-field">
-      <md-outlined-select id="invoice-client" label="Klant" menu-positioning="absolute">
+      <md-outlined-select id="invoice-client" label="Klant" value="${escapeHtml(state.invoiceForm.client || '')}" menu-positioning="absolute">
         <md-select-option value=""><div slot="headline">Selecteer klant...</div></md-select-option>
         ${Object.keys(clientGroupMap).map((c) => `<md-select-option value="${escapeHtml(c)}" ${state.invoiceForm.client === c ? 'selected' : ''}><div slot="headline">${escapeHtml(c)}</div></md-select-option>`).join('')}
       </md-outlined-select>
@@ -2638,7 +2734,7 @@ function renderInvoiceCreateContent() {
       <textarea id="invoice-notes" rows="2" placeholder="Bijv. referentie, betalingsinstructie..." style="padding:12px;border:1px solid var(--md-sys-color-outline);border-radius:8px;background:var(--md-sys-color-surface);color:var(--md-sys-color-on-surface);font-family:inherit;font-size:14px;resize:vertical;">${escapeHtml(state.invoiceForm.notes || '')}</textarea>
     </div>
   `;
-  content.querySelector('#invoice-client')?.addEventListener('change', (e) => handleClientChange(e.target.value));
+  content.querySelector('#invoice-client')?.addEventListener('change', (e) => handleClientChange(e.target?.value ?? ''));
   content.querySelectorAll('md-checkbox[data-type="project"]').forEach((cb) => {
     cb.addEventListener('change', () => toggleProject(cb.dataset.id));
   });
@@ -3016,10 +3112,25 @@ function init() {
     if (appHeader) appHeader.inert = !!anyOpen;
     if (fab) fab.style.display = anyOpen ? 'none' : (state.projects.length > 0 ? 'flex' : 'none');
   };
+  const injectScrimStyle = (dialog) => {
+    if (!dialog?.shadowRoot || dialog.dataset.scrimStyled) return;
+    const style = document.createElement('style');
+    style.textContent = '.scrim { opacity: 0.8 !important; }';
+    dialog.shadowRoot.appendChild(style);
+    dialog.dataset.scrimStyled = '1';
+  };
   document.querySelectorAll('md-dialog').forEach((d) => {
+    injectScrimStyle(d);
     d.addEventListener('open', updateHeaderInert);
     d.addEventListener('closed', () => setTimeout(updateHeaderInert, 0));
   });
+  new MutationObserver((mutations) => {
+    mutations.forEach((m) => {
+      if (m.addedNodes?.length) m.addedNodes.forEach((n) => {
+        if (n?.nodeName === 'MD-DIALOG') injectScrimStyle(n);
+      });
+    });
+  }).observe(document.body, { childList: true, subtree: true });
   document.getElementById('snackbar-undo')?.addEventListener('click', onSnackbarUndo);
   // Voorkom dat scrollen in select-dropdown de pagina scrollt
   let selectMenuOpenCount = 0;
