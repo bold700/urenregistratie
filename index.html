@@ -47,6 +47,29 @@
   </script>
   <style>
     html { scrollbar-gutter: stable; }
+    /* Scrollbar styling – past bij light/dark theme */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--md-sys-color-outline-variant) var(--md-sys-color-surface-container-high);
+    }
+    *::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    *::-webkit-scrollbar-track {
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 4px;
+    }
+    *::-webkit-scrollbar-thumb {
+      background: var(--md-sys-color-outline-variant);
+      border-radius: 4px;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+      background: var(--md-sys-color-outline);
+    }
+    *::-webkit-scrollbar-corner {
+      background: var(--md-sys-color-surface-container-high);
+    }
     body {
       font-family: 'Roboto', sans-serif;
       background: var(--md-sys-color-background);
@@ -339,6 +362,7 @@
     .dashboard-project-hours { font-weight: 700; color: var(--md-sys-color-primary); font-size: 13px; }
     .dashboard-project-open { font-size: 10px; color: var(--md-sys-color-on-surface-variant); }
     .capacity-bar-wrap {
+      padding-top: 16px;
       margin-bottom: 20px;
     }
     .capacity-bar-wrap .capacity-bar {
@@ -640,6 +664,7 @@
     }
     md-dialog { --md-dialog-container-color: var(--md-sys-color-surface); }
     md-dialog:not([open]) { display: none !important; }
+    md-dialog [slot="content"] { position: relative; }
     .danger { --md-filled-button-container-color: var(--md-sys-color-error); --md-filled-button-label-text-color: var(--md-sys-color-on-error); }
     .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; padding-top: 8px; }
     .pdf-preview {
@@ -719,6 +744,21 @@
     }
     .snackbar-action:hover {
       background: color-mix(in srgb, var(--md-sys-color-inverse-primary) 12%, transparent);
+    }
+    /* Fix select dropdown scroll – werkt op mobiel en desktop */
+    md-outlined-select::part(menu),
+    md-filled-select::part(menu),
+    md-menu {
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      -webkit-overflow-scrolling: touch !important;
+      touch-action: pan-y;
+      overscroll-behavior-y: contain;
+      pointer-events: auto !important;
+    }
+    md-outlined-select::part(menu),
+    md-filled-select::part(menu) {
+      max-height: min(80vh, 480px);
     }
     .login-screen {
       position: fixed; inset: 0; z-index: 10000;
@@ -903,6 +943,7 @@
   </md-dialog>
 
   </div><!-- /app-shell -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" integrity="sha512-GsLlZN/3F2ErC5ifS5QtgpiJtWd43JWSuIgh7mbzZ8zBps+dvLusV+eNQATqgA/HdeKFVgA5v3S/cIrLF7QnIg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="firebase-config.js"></script>
   <script>

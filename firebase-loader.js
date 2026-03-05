@@ -116,5 +116,11 @@
     formWrap?.addEventListener('focusin', (e) => {
       if (e.target.closest('md-outlined-text-field')) scrollButtonsIntoView();
     }, true);
+    formWrap?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        doLogin(false);
+      }
+    });
   }
 })();

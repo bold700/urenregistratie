@@ -62,6 +62,327 @@ const retainerHoursPerMonth = (p) => {
   return (p.hoursPerPeriod || 0) * mult;
 };
 
+/** ISO weeknummer (week 1 = week met eerste donderdag van het jaar) */
+function getISOWeek(d) {
+  const date = new Date(d.getTime());
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + 4 - (date.getDay() || 7));
+  const yearStart = new Date(date.getFullYear(), 0, 1);
+  return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+}
+
+/** Aggregeert uren en omzet per week (maandag–zondag) voor de laatste N weken */
+function getWeeklyHoursData(entries, numWeeks = 12, projects = []) {
+  const weeks = [];
+  const now = new Date();
+  const months = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+  const fmt = (iso) => {
+    const d = new Date(iso);
+    return `${d.getDate()} ${months[d.getMonth()]}`;
+  };
+  for (let i = numWeeks - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - (i * 7));
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    const weekStart = d.toISOString().split('T')[0];
+    const weekEnd = addDays(weekStart, 6);
+    const weekEntries = entries.filter((e) => e.date >= weekStart && e.date <= weekEnd);
+    const hours = weekEntries.reduce((s, e) => s + (e.hours || 0), 0);
+    const revenue = weekEntries.reduce((s, e) => {
+      const p = projects.find((pr) => pr.id === e.projectId);
+      if (!p || e.notBillable) return s;
+      if (p.type === 'hourly' || p.type === 'retainer_hours') return s + (e.hours || 0) * (p.rate || 0);
+      return s;
+    }, 0);
+    const weekNr = getISOWeek(d);
+    const dateRange = `${fmt(weekStart)} – ${fmt(weekEnd)}`;
+    weeks.push({ label: `WK ${weekNr}`, hours, revenue, weekStart, weekEnd, weekNr, dateRange });
+  }
+  return weeks;
+}
+
+let _hoursChartInstance = null;
+let _hoursPerProjectChartInstance = null;
+let _hoursPerLabelChartInstance = null;
+
+function getComputedChartColor(cssVar) {
+  const val = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
+  return val || '#4C662B';
+}
+
+function renderHoursChart(canvasId, entries, weekCapacity = 40, projects = []) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || typeof Chart === 'undefined') return;
+  if (_hoursChartInstance) {
+    _hoursChartInstance.destroy();
+    _hoursChartInstance = null;
+  }
+  const data = getWeeklyHoursData(entries, 12, projects);
+  const isDark = document.documentElement.classList.contains('dark') || document.documentElement.getAttribute('data-color-scheme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+  const textColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)';
+  const primaryColor = getComputedChartColor('--md-sys-color-primary');
+  const errorColor = getComputedChartColor('--md-sys-color-error');
+
+  _hoursChartInstance = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: data.map((w) => w.label),
+      datasets: [
+        {
+          label: 'Uren',
+          data: data.map((w) => w.hours),
+          backgroundColor: data.map((w) => w.hours >= weekCapacity ? errorColor : primaryColor),
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: { color: textColor, boxWidth: 12, font: { size: 11 } },
+        },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const w = data[items[0]?.dataIndex];
+              return w ? `${w.label} · ${w.dateRange}` : items[0]?.label;
+            },
+            label: (ctx) => `${ctx.raw.toFixed(1)} uur`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: gridColor },
+          ticks: { color: textColor, maxRotation: 45, font: { size: 10 } },
+        },
+        y: {
+          type: 'linear',
+          position: 'left',
+          beginAtZero: true,
+          grid: { color: gridColor },
+          ticks: { color: textColor, callback: (v) => v + 'u' },
+        },
+      },
+    },
+  });
+}
+
+/** Uren per project voor horizontaal staafdiagram. activeOnly=true: alleen actieve projecten (hoofddashboard). */
+function getHoursPerProjectData(entries, projects, activeOnly = true) {
+  const list = activeOnly ? projects.filter((p) => p.status === 'active') : projects;
+  return list
+    .map((p) => ({
+      name: p.name,
+      client: p.client,
+      hours: entries.filter((e) => e.projectId === p.id).reduce((s, e) => s + (e.hours || 0), 0),
+    }))
+    .filter((x) => x.hours > 0)
+    .sort((a, b) => b.hours - a.hours);
+}
+
+function renderHoursPerProjectChart(canvasId, entries, projects = [], activeOnly = true, hideClientInLabel = false) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || typeof Chart === 'undefined') return;
+  if (_hoursPerProjectChartInstance) {
+    _hoursPerProjectChartInstance.destroy();
+    _hoursPerProjectChartInstance = null;
+  }
+  const data = getHoursPerProjectData(entries, projects, activeOnly);
+  if (data.length === 0) return;
+  const isDark = document.documentElement.classList.contains('dark') || document.documentElement.getAttribute('data-color-scheme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+  const textColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)';
+  const colors = [
+    getComputedChartColor('--md-sys-color-primary'),
+    getComputedChartColor('--md-sys-color-secondary'),
+    getComputedChartColor('--md-sys-color-tertiary'),
+    getComputedChartColor('--md-sys-color-primary-container'),
+    getComputedChartColor('--md-sys-color-secondary-container'),
+    getComputedChartColor('--md-sys-color-tertiary-container'),
+  ];
+  const labelFn = (d) => (hideClientInLabel || !d.client ? d.name : `${d.name} · ${d.client}`);
+  _hoursPerProjectChartInstance = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: data.map(labelFn),
+      datasets: [{
+        label: 'Uren',
+        data: data.map((d) => d.hours),
+        backgroundColor: data.map((_, i) => colors[i % colors.length]),
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.raw.toFixed(1)} uur`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          grid: { color: gridColor },
+          ticks: { color: textColor, callback: (v) => v + 'u', font: { size: 10 } },
+        },
+        y: {
+          grid: { display: false },
+          ticks: { color: textColor, font: { size: 11 }, maxRotation: 0 },
+        },
+      },
+    },
+  });
+}
+
+/** Uren die al X weken open staan (nog te factureren) */
+function getOldUnbilledEntries(entries, draftInvoiceIds, projects, weeks = 4) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - weeks * 7);
+  const cutoffStr = cutoff.toISOString().split('T')[0];
+  return entries
+    .filter((e) => !e.notBillable && (!e.invoiceId || draftInvoiceIds.has(e.invoiceId)) && e.date < cutoffStr)
+    .map((e) => {
+      const p = projects.find((pr) => pr.id === e.projectId);
+      const value = (p?.type === 'hourly' || p?.type === 'retainer_hours') ? (e.hours || 0) * (p?.rate || 0) : 0;
+      return { ...e, project: p, value };
+    })
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+}
+
+/** Budgetverbruik voor projecten met uren- of €-budget */
+function getBudgetUsageData(entries, projects) {
+  return projects
+    .filter((p) => p.budget > 0 && (p.type === 'hourly' || p.type === 'fixed'))
+    .map((p) => {
+      const pEntries = entries.filter((e) => e.projectId === p.id);
+      const usedHours = pEntries.reduce((s, e) => s + (e.hours || 0), 0);
+      const usedEur = pEntries.filter((e) => !e.notBillable).reduce((s, e) => s + (e.hours || 0) * (p.rate || 0), 0);
+      if (p.type === 'hourly') {
+        const budget = p.budget;
+        const pct = budget > 0 ? Math.min(150, (usedHours / budget) * 100) : 0;
+        return { project: p, used: usedHours, budget, pct, unit: 'u', usedLabel: `${usedHours.toFixed(1)}u`, budgetLabel: `${budget}u` };
+      }
+      const budget = p.budget;
+      const pct = budget > 0 ? Math.min(150, (usedEur / budget) * 100) : 0;
+      return { project: p, used: usedEur, budget, pct, unit: 'eur', usedLabel: formatEur(usedEur), budgetLabel: formatEur(budget) };
+    })
+    .filter((x) => x.budget > 0);
+}
+
+/** Facturatie-efficiëntie: factureerbare vs niet-factureerbare uren */
+function getBillingEfficiency(entries) {
+  const total = entries.reduce((s, e) => s + (e.hours || 0), 0);
+  const billable = entries.filter((e) => !e.notBillable).reduce((s, e) => s + (e.hours || 0), 0);
+  const nonBillable = total - billable;
+  const pct = total > 0 ? (billable / total * 100) : 0;
+  return { total, billable, nonBillable, pct };
+}
+
+/** Top 5 klanten op uren of omzet */
+function getTopClientsData(entries, projects, limit = 5) {
+  const byClient = new Map();
+  entries.forEach((e) => {
+    const p = projects.find((pr) => pr.id === e.projectId);
+    const clientName = p?.client?.trim() || 'Geen klant';
+    if (!byClient.has(clientName)) byClient.set(clientName, { name: clientName, hours: 0, revenue: 0 });
+    const item = byClient.get(clientName);
+    item.hours += e.hours || 0;
+    if (p && !e.notBillable && (p.type === 'hourly' || p.type === 'retainer_hours')) {
+      item.revenue += (e.hours || 0) * (p.rate || 0);
+    }
+  });
+  return [...byClient.values()]
+    .filter((x) => x.hours > 0)
+    .sort((a, b) => b.hours - a.hours)
+    .slice(0, limit);
+}
+
+/** Uren per label voor horizontaal staafdiagram */
+function getHoursPerLabelData(entries, labels = []) {
+  const byLabel = new Map();
+  const getName = (id) => (id ? (labels.find((l) => l.id === id)?.name || 'Onbekend') : 'Geen label');
+  entries.forEach((e) => {
+    const key = e.labelId || '';
+    if (!byLabel.has(key)) byLabel.set(key, { name: getName(key), hours: 0 });
+    byLabel.get(key).hours += e.hours || 0;
+  });
+  return [...byLabel.values()]
+    .filter((x) => x.hours > 0)
+    .sort((a, b) => b.hours - a.hours);
+}
+
+function renderHoursPerLabelChart(canvasId, entries, labels = []) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || typeof Chart === 'undefined') return;
+  if (_hoursPerLabelChartInstance) {
+    _hoursPerLabelChartInstance.destroy();
+    _hoursPerLabelChartInstance = null;
+  }
+  const data = getHoursPerLabelData(entries, labels);
+  if (data.length === 0) return;
+  const isDark = document.documentElement.classList.contains('dark') || document.documentElement.getAttribute('data-color-scheme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+  const textColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)';
+  const colors = [
+    getComputedChartColor('--md-sys-color-primary'),
+    getComputedChartColor('--md-sys-color-secondary'),
+    getComputedChartColor('--md-sys-color-tertiary'),
+    getComputedChartColor('--md-sys-color-primary-container'),
+    getComputedChartColor('--md-sys-color-secondary-container'),
+    getComputedChartColor('--md-sys-color-tertiary-container'),
+  ];
+  _hoursPerLabelChartInstance = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: data.map((d) => d.name),
+      datasets: [{
+        label: 'Uren',
+        data: data.map((d) => d.hours),
+        backgroundColor: data.map((_, i) => colors[i % colors.length]),
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.raw.toFixed(1)} uur`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          grid: { color: gridColor },
+          ticks: { color: textColor, callback: (v) => v + 'u', font: { size: 10 } },
+        },
+        y: {
+          grid: { display: false },
+          ticks: { color: textColor, font: { size: 11 }, maxRotation: 0 },
+        },
+      },
+    },
+  });
+}
+
 function storageLoad(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -530,6 +851,9 @@ function renderDashboard() {
     { label: 'Ontvangen', value: formatEur(paidValue), sub: 'alle tijden', color: 'var(--md-sys-color-primary)' },
     { label: 'Uren deze maand', value: `${totalMonthHours.toFixed(1)}u`, sub: monthSub, color: 'var(--md-sys-color-secondary)' },
   ];
+  const oldUnbilled = getOldUnbilledEntries(entries, draftInvoiceIds, projects, 4);
+  const oldUnbilledHours = oldUnbilled.reduce((s, e) => s + (e.hours || 0), 0);
+  const oldUnbilledValue = oldUnbilled.reduce((s, e) => s + (e.value || 0), 0);
   const retainerTotalPerMonth = vasteRetainers.reduce((s, p) => s + retainerAmountPerMonth(p), 0);
   const lastEntries = [...entries].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 5);
   el.innerHTML = `
@@ -542,6 +866,54 @@ function renderDashboard() {
         </div>
       `).join('')}
     </div>
+    ${oldUnbilled.length > 0 ? `
+    <div class="dashboard-section">
+      <div class="card" style="padding:16px;border-left:4px solid var(--md-sys-color-error);background:var(--md-sys-color-error-container);">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <md-icon style="color:var(--md-sys-color-error);font-size:20px;">warning</md-icon>
+          <span style="font-weight:700;font-size:14px;color:var(--md-sys-color-on-error-container);">Lang niet gefactureerd</span>
+        </div>
+        <p style="margin:0 0 10px;font-size:13px;color:var(--md-sys-color-on-error-container);">
+          ${oldUnbilled.length} urenregel(s) ouder dan 4 weken staan nog open: ${oldUnbilledHours.toFixed(1)}u (${formatEur(oldUnbilledValue)}).
+        </p>
+        <md-text-button data-nav="uren">Naar uren →</md-text-button>
+      </div>
+    </div>
+    ` : ''}
+    <div class="dashboard-section">
+      <div class="section-title">Uren per week</div>
+      <div class="card" style="padding:16px;">
+        <div style="height:220px;position:relative;">
+          <canvas id="chart-dash-hours"></canvas>
+        </div>
+      </div>
+    </div>
+    ${(() => {
+      const projectHoursData = getHoursPerProjectData(entries, projects);
+      return projectHoursData.length > 0 ? `
+    <div class="dashboard-section">
+      <div class="section-title">Uren per project</div>
+      <div class="card" style="padding:16px;">
+        <div style="height:${Math.min(260, Math.max(140, projectHoursData.length * 32))}px;position:relative;">
+          <canvas id="chart-dash-hours-per-project"></canvas>
+        </div>
+      </div>
+    </div>
+    ` : '';
+    })()}
+    ${(() => {
+      const labelHoursData = getHoursPerLabelData(entries, state.labels);
+      return labelHoursData.length > 0 ? `
+    <div class="dashboard-section">
+      <div class="section-title">Uren per label</div>
+      <div class="card" style="padding:16px;">
+        <div style="height:${Math.min(220, Math.max(120, labelHoursData.length * 32))}px;position:relative;">
+          <canvas id="chart-dash-hours-per-label"></canvas>
+        </div>
+      </div>
+    </div>
+    ` : '';
+    })()}
     <div class="capacity-bar-wrap">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
         <span class="card-label">Capaciteit deze week</span>
@@ -553,6 +925,72 @@ function renderDashboard() {
         <div class="capacity-bar-fill" style="width:${pct}%;background:${overbooked ? 'var(--md-sys-color-error)' : pct > 80 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'}"></div>
       </div>
     </div>
+    ${(() => {
+      const topClients = getTopClientsData(entries, projects, 5);
+      return topClients.length > 0 ? `
+    <div class="dashboard-section">
+      <div class="section-title">Top 5 klanten</div>
+      <div class="card" style="padding:16px;">
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          ${topClients.map((c, i) => `
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-weight:600;font-size:13px;">${i + 1}. ${escapeHtml(c.name)}</span>
+            <span style="font-size:12px;color:var(--md-sys-color-on-surface-variant);">${c.hours.toFixed(1)}u · ${formatEur(c.revenue)}</span>
+          </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+    ` : '';
+    })()}
+    ${(() => {
+      const eff = getBillingEfficiency(entries);
+      return eff.total > 0 ? `
+    <div class="dashboard-section">
+      <div class="section-title">Facturatie-efficiëntie</div>
+      <div class="card" style="padding:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+          <span class="card-label">Factureerbare uren</span>
+          <span style="font-weight:700;font-size:14px;color:var(--md-sys-color-primary);">${eff.pct.toFixed(0)}%</span>
+        </div>
+        <div class="capacity-bar">
+          <div class="capacity-bar-fill" style="width:${eff.pct}%;background:var(--md-sys-color-primary);"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--md-sys-color-on-surface-variant);">
+          <span>${eff.billable.toFixed(1)}u factureerbaar</span>
+          <span>${eff.nonBillable.toFixed(1)}u intern</span>
+        </div>
+      </div>
+    </div>
+    ` : '';
+    })()}
+    ${(() => {
+      const budgetData = getBudgetUsageData(entries, projects);
+      return budgetData.length > 0 ? `
+    <div class="dashboard-section">
+      <div class="section-title">Budgetverbruik</div>
+      <div class="card" style="padding:16px;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          ${budgetData.map((b) => {
+            const over = b.pct > 100;
+            const color = over ? 'var(--md-sys-color-error)' : b.pct > 80 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)';
+            return `
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+              <span style="font-weight:600;font-size:13px;">${escapeHtml(b.project.name)}</span>
+              <span style="font-size:11px;font-weight:700;color:${color}">${b.usedLabel} / ${b.budgetLabel}${over ? ' ⚠ over' : ''}</span>
+            </div>
+            <div class="capacity-bar">
+              <div class="capacity-bar-fill" style="width:${Math.min(100, b.pct)}%;background:${color};"></div>
+            </div>
+          </div>
+          `;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+    ` : '';
+    })()}
     ${vasteRetainers.length > 0 ? `
     <div class="dashboard-section">
       <div class="section-title">Vaste retainers</div>
@@ -645,6 +1083,10 @@ function renderDashboard() {
   el.querySelectorAll('[data-nav]').forEach((a) => {
     a.addEventListener('click', (e) => { e.preventDefault(); switchTab(a.dataset.nav); });
   });
+  const weekCap = settings?.weekCapacity || 40;
+  renderHoursChart('chart-dash-hours', entries, weekCap, projects);
+  renderHoursPerProjectChart('chart-dash-hours-per-project', entries, projects);
+  renderHoursPerLabelChart('chart-dash-hours-per-label', entries, state.labels);
 }
 
 // ─── Projecten ─────────────────────────────────────────────────────────────
@@ -788,7 +1230,7 @@ function renderUren() {
             </div>
           ` : `
             <div class="timer-input-row">
-              <md-outlined-select id="timer-project-select" label="Project" value="${availableProjects[0]?.id || ''}">
+              <md-outlined-select id="timer-project-select" label="Project" value="${availableProjects[0]?.id || ''}" menu-positioning="absolute">
                 ${availableProjects.map((p) => `<md-select-option value="${p.id}"><div slot="headline">${escapeHtml(p.name)}</div><div slot="supporting-text">${escapeHtml(p.client || '—')}</div></md-select-option>`).join('')}
               </md-outlined-select>
               <md-outlined-text-field id="timer-description-input" label="Omschrijving (optioneel)" placeholder="Wat doe je?"></md-outlined-text-field>
@@ -1012,6 +1454,84 @@ function renderClientDashboard(clientId) {
       </div>
     </div>
     <div class="dashboard-section">
+      <div class="section-title">Uren per week</div>
+      <div class="card" style="padding:16px;">
+        <div style="height:220px;position:relative;">
+          <canvas id="chart-client-hours"></canvas>
+        </div>
+      </div>
+    </div>
+    ${(() => {
+      const projectHoursData = getHoursPerProjectData(clientEntries, clientProjects);
+      return projectHoursData.length > 0 ? `
+    <div class="dashboard-section">
+      <div class="section-title">Uren per project</div>
+      <div class="card" style="padding:16px;">
+        <div style="height:${Math.min(220, Math.max(120, projectHoursData.length * 32))}px;position:relative;">
+          <canvas id="chart-client-hours-per-project"></canvas>
+        </div>
+      </div>
+    </div>
+    ` : '';
+    })()}
+    ${(() => {
+      const labelHoursData = getHoursPerLabelData(clientEntries, state.labels);
+      return labelHoursData.length > 0 ? `
+    <div class="dashboard-section">
+      <div class="section-title">Uren per label</div>
+      <div class="card" style="padding:16px;">
+        <div style="height:${Math.min(200, Math.max(100, labelHoursData.length * 32))}px;position:relative;">
+          <canvas id="chart-client-hours-per-label"></canvas>
+        </div>
+      </div>
+    </div>
+    ` : '';
+    })()}
+    ${(() => {
+      const oldUnbilled = getOldUnbilledEntries(clientEntries, draftInvoiceIds, clientProjects, 4);
+      return oldUnbilled.length > 0 ? `
+    <div class="dashboard-section">
+      <div class="card" style="padding:16px;border-left:4px solid var(--md-sys-color-error);background:var(--md-sys-color-error-container);">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <md-icon style="color:var(--md-sys-color-error);font-size:20px;">warning</md-icon>
+          <span style="font-weight:700;font-size:14px;color:var(--md-sys-color-on-error-container);">Lang niet gefactureerd</span>
+        </div>
+        <p style="margin:0 0 10px;font-size:13px;color:var(--md-sys-color-on-error-container);">
+          ${oldUnbilled.length} urenregel(s) voor deze klant ouder dan 4 weken staan nog open: ${oldUnbilled.reduce((s, e) => s + (e.hours || 0), 0).toFixed(1)}u (${formatEur(oldUnbilled.reduce((s, e) => s + (e.value || 0), 0))}).
+        </p>
+        <md-text-button data-nav="uren">Naar uren →</md-text-button>
+      </div>
+    </div>
+    ` : '';
+    })()}
+    ${(() => {
+      const budgetData = getBudgetUsageData(clientEntries, clientProjects);
+      return budgetData.length > 0 ? `
+    <div class="dashboard-section">
+      <div class="section-title">Budgetverbruik</div>
+      <div class="card" style="padding:16px;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          ${budgetData.map((b) => {
+            const over = b.pct > 100;
+            const color = over ? 'var(--md-sys-color-error)' : b.pct > 80 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)';
+            return `
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+              <span style="font-weight:600;font-size:13px;">${escapeHtml(b.project.name)}</span>
+              <span style="font-size:11px;font-weight:700;color:${color}">${b.usedLabel} / ${b.budgetLabel}${over ? ' ⚠ over' : ''}</span>
+            </div>
+            <div class="capacity-bar">
+              <div class="capacity-bar-fill" style="width:${Math.min(100, b.pct)}%;background:${color};"></div>
+            </div>
+          </div>
+          `;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+    ` : '';
+    })()}
+    <div class="dashboard-section">
       <div class="section-title">Projecten (${clientProjects.length})</div>
       <div class="card-list">
       ${clientProjects.length === 0 ? '<p style="color:var(--md-sys-color-on-surface-variant);font-size:13px;">Geen projecten</p>' : clientProjects.map((p) => {
@@ -1083,6 +1603,21 @@ function renderClientDashboard(clientId) {
     state.viewingClientId = null;
     renderClients();
   });
+  el.querySelectorAll('[data-nav]').forEach((a) => {
+    a.addEventListener('click', (e) => { e.preventDefault(); switchTab(a.dataset.nav); });
+  });
+  const weekCap = state.settings?.weekCapacity || 40;
+  if (_hoursPerProjectChartInstance) {
+    _hoursPerProjectChartInstance.destroy();
+    _hoursPerProjectChartInstance = null;
+  }
+  if (_hoursPerLabelChartInstance) {
+    _hoursPerLabelChartInstance.destroy();
+    _hoursPerLabelChartInstance = null;
+  }
+  renderHoursChart('chart-client-hours', clientEntries, weekCap, state.projects);
+  renderHoursPerProjectChart('chart-client-hours-per-project', clientEntries, clientProjects, false, true);
+  renderHoursPerLabelChart('chart-client-hours-per-label', clientEntries, state.labels);
 }
 
 function renderClients() {
@@ -1091,6 +1626,10 @@ function renderClients() {
   if (state.viewingClientId) {
     renderClientDashboard(state.viewingClientId);
     return;
+  }
+  if (_hoursChartInstance) {
+    _hoursChartInstance.destroy();
+    _hoursChartInstance = null;
   }
   const { clients, projects } = state;
   el.innerHTML = `
@@ -1653,7 +2192,7 @@ function openQuickLogDialog() {
       </div>
     ` : `
       <div class="form-field">
-        <md-outlined-select id="quick-project" label="Project">
+        <md-outlined-select id="quick-project" label="Project" menu-positioning="absolute">
           ${activeProjects.map((p) => `<md-select-option value="${p.id}"><div slot="headline">${escapeHtml(p.name)}</div><div slot="supporting-text">${escapeHtml(p.client || '—')}</div></md-select-option>`).join('')}
         </md-outlined-select>
       </div>
@@ -1781,14 +2320,14 @@ function openProjectDialog(editId = null) {
       </div>
     ` : `
       <div class="form-field">
-        <md-outlined-select id="project-client" label="Klant *">
+        <md-outlined-select id="project-client" label="Klant *" menu-positioning="absolute">
           <md-select-option value=""><div slot="headline">Selecteer klant...</div></md-select-option>
           ${clients.map((c) => `<md-select-option value="${escapeHtml(c.name)}" ${state.projectForm.client === c.name ? 'selected' : ''}><div slot="headline">${escapeHtml(c.name)}</div></md-select-option>`).join('')}
         </md-outlined-select>
       </div>
     `}
     <div class="form-field">
-      <md-outlined-select id="project-type" label="Facturatie type">
+      <md-outlined-select id="project-type" label="Facturatie type" menu-positioning="absolute">
         <md-select-option value="hourly" ${state.projectForm.type === 'hourly' ? 'selected' : ''}><div slot="headline">Per uur</div></md-select-option>
         <md-select-option value="fixed" ${state.projectForm.type === 'fixed' ? 'selected' : ''}><div slot="headline">Vaste prijs</div></md-select-option>
         <md-select-option value="retainer" ${state.projectForm.type === 'retainer' ? 'selected' : ''}><div slot="headline">Retainer (vast bedrag per periode)</div></md-select-option>
@@ -1808,7 +2347,7 @@ function openProjectDialog(editId = null) {
         <md-outlined-text-field id="project-retainer-rate" label="Bedrag (€)" type="number" inputmode="decimal" value="${state.projectForm.rate}"></md-outlined-text-field>
       </div>
       <div class="form-field">
-        <md-outlined-select id="project-period" label="Periode">
+        <md-outlined-select id="project-period" label="Periode" menu-positioning="absolute">
           <md-select-option value="week"><div slot="headline">Per week</div></md-select-option>
           <md-select-option value="4weeks"><div slot="headline">Per 4 weken</div></md-select-option>
           <md-select-option value="month" ${(state.projectForm.period || 'month') === 'month' ? 'selected' : ''}><div slot="headline">Per maand</div></md-select-option>
@@ -1824,7 +2363,7 @@ function openProjectDialog(editId = null) {
         <md-outlined-text-field id="project-retainer-hours-rate" label="Uurtarief (€)" type="number" inputmode="decimal" value="${state.projectForm.rate}" placeholder="bijv. 108"></md-outlined-text-field>
       </div>
       <div class="form-field" style="grid-column:1/-1;">
-        <md-outlined-select id="project-retainer-hours-period" label="Periode">
+        <md-outlined-select id="project-retainer-hours-period" label="Periode" menu-positioning="absolute">
           <md-select-option value="week" ${(state.projectForm.period || 'week') === 'week' ? 'selected' : ''}><div slot="headline">Per week</div></md-select-option>
           <md-select-option value="4weeks"><div slot="headline">Per 4 weken</div></md-select-option>
           <md-select-option value="month"><div slot="headline">Per maand</div></md-select-option>
@@ -1836,7 +2375,7 @@ function openProjectDialog(editId = null) {
       <md-outlined-text-field id="project-fixed-budget" label="Vaste prijs (€)" type="number" inputmode="decimal" value="${state.projectForm.budget}"></md-outlined-text-field>
     </div>
     <div class="form-field">
-      <md-outlined-select id="project-status" label="Status">
+      <md-outlined-select id="project-status" label="Status" menu-positioning="absolute">
         <md-select-option value="active" ${state.projectForm.status === 'active' ? 'selected' : ''}><div slot="headline">Actief</div></md-select-option>
         <md-select-option value="inactive" ${state.projectForm.status === 'inactive' ? 'selected' : ''}><div slot="headline">Inactief</div></md-select-option>
       </md-outlined-select>
@@ -2050,7 +2589,7 @@ function renderInvoiceCreateContent() {
   };
   content.innerHTML = `
     <div class="form-field">
-      <md-outlined-select id="invoice-client" label="Klant">
+      <md-outlined-select id="invoice-client" label="Klant" menu-positioning="absolute">
         <md-select-option value=""><div slot="headline">Selecteer klant...</div></md-select-option>
         ${Object.keys(clientGroupMap).map((c) => `<md-select-option value="${escapeHtml(c)}" ${state.invoiceForm.client === c ? 'selected' : ''}><div slot="headline">${escapeHtml(c)}</div></md-select-option>`).join('')}
       </md-outlined-select>
@@ -2486,6 +3025,20 @@ function init() {
     d.addEventListener('closed', () => setTimeout(updateHeaderInert, 0));
   });
   document.getElementById('snackbar-undo')?.addEventListener('click', onSnackbarUndo);
+  // Voorkom dat scrollen in select-dropdown de pagina scrollt
+  let selectMenuOpenCount = 0;
+  document.addEventListener('opened', (e) => {
+    if (e.target?.matches?.('md-outlined-select, md-filled-select')) {
+      selectMenuOpenCount++;
+      document.body.style.overflow = 'hidden';
+    }
+  }, true);
+  document.addEventListener('closed', (e) => {
+    if (e.target?.matches?.('md-outlined-select, md-filled-select')) {
+      selectMenuOpenCount = Math.max(0, selectMenuOpenCount - 1);
+      if (selectMenuOpenCount === 0) document.body.style.overflow = '';
+    }
+  }, true);
   document.addEventListener('keydown', (e) => {
     const dialogOpen = document.querySelector('md-dialog[open]');
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
