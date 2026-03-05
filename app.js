@@ -2192,9 +2192,10 @@ function openQuickLogDialog() {
       </div>
     ` : `
       <div class="form-field">
-        <md-outlined-select id="quick-project" label="Project" menu-positioning="absolute">
-          ${activeProjects.map((p) => `<md-select-option value="${p.id}"><div slot="headline">${escapeHtml(p.name)}</div><div slot="supporting-text">${escapeHtml(p.client || '—')}</div></md-select-option>`).join('')}
-        </md-outlined-select>
+        <label class="card-label" for="quick-project">Project</label>
+        <select id="quick-project" class="native-select">
+          ${activeProjects.map((p) => `<option value="${p.id}" ${p.id === firstId ? 'selected' : ''}>${escapeHtml(p.name)}${p.client ? ' · ' + escapeHtml(p.client) : ''}</option>`).join('')}
+        </select>
       </div>
     `}
     <div class="form-field">
@@ -2212,13 +2213,11 @@ function openQuickLogDialog() {
     </div>
     ${state.labels?.length > 0 ? `
     <div class="form-field">
-      <span class="card-label">Onderwerp / type werk</span>
-      <div class="label-pills">
-        <button type="button" class="label-pill ${!state.quickLogForm.labelId ? 'selected' : ''}" data-label-id="">Geen</button>
-        ${state.labels.map((l) => `
-          <button type="button" class="label-pill ${state.quickLogForm.labelId === l.id ? 'selected' : ''}" data-label-id="${escapeHtml(l.id)}">${escapeHtml(l.name)}</button>
-        `).join('')}
-      </div>
+      <label class="card-label" for="quick-label">Onderwerp / type werk</label>
+      <select id="quick-label" class="native-select">
+        <option value="" ${!state.quickLogForm.labelId ? 'selected' : ''}>Geen</option>
+        ${state.labels.map((l) => `<option value="${escapeHtml(l.id)}" ${state.quickLogForm.labelId === l.id ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
+      </select>
     </div>
     ` : ''}
     <div class="form-field">
@@ -2252,13 +2251,8 @@ function openQuickLogDialog() {
   content.querySelector('#quick-date')?.addEventListener('input', (e) => { state.quickLogForm.date = e.target.value; });
   content.querySelector('#quick-description')?.addEventListener('input', (e) => { state.quickLogForm.description = e.target.value; });
   content.querySelector('#quick-not-billable')?.addEventListener('change', (e) => { state.quickLogForm.notBillable = e.target.checked; });
-  content.querySelectorAll('.label-pill').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      content.querySelectorAll('.label-pill').forEach((b) => b.classList.remove('selected'));
-      btn.classList.add('selected');
-      state.quickLogForm.labelId = btn.dataset.labelId || '';
-    });
-  });
+  const labelSelect = content.querySelector('#quick-label');
+  if (labelSelect) labelSelect.addEventListener('change', () => { state.quickLogForm.labelId = labelSelect.value || ''; });
   document.getElementById('quick-log-dialog').show();
 }
 
@@ -2274,8 +2268,8 @@ function saveQuickLog() {
   if (descInput) form.description = descInput.value;
   const nbInput = document.querySelector('#quick-not-billable');
   if (nbInput) form.notBillable = nbInput.checked;
-  const selectedLabel = document.querySelector('.label-pill.selected');
-  if (selectedLabel) form.labelId = selectedLabel.dataset.labelId || '';
+  const labelSelect = document.querySelector('#quick-label');
+  if (labelSelect) form.labelId = labelSelect.value || '';
   const errEl = document.getElementById('quick-log-error');
   if (!form.projectId) { errEl.textContent = 'Selecteer een project'; errEl.style.display = 'block'; return; }
   const hours = parseFloat(form.hours);
@@ -3016,9 +3010,11 @@ function init() {
     confirmDlg.addEventListener('cancel', () => { state.pendingDelete = null; });
   }
   const appHeader = document.querySelector('.app-header');
+  const fab = document.getElementById('fab-quick-log');
   const updateHeaderInert = () => {
     const anyOpen = document.querySelector('md-dialog[open]');
     if (appHeader) appHeader.inert = !!anyOpen;
+    if (fab) fab.style.display = anyOpen ? 'none' : (state.projects.length > 0 ? 'flex' : 'none');
   };
   document.querySelectorAll('md-dialog').forEach((d) => {
     d.addEventListener('open', updateHeaderInert);

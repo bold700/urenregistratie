@@ -577,6 +577,30 @@
     .form-field md-outlined-text-field,
     .form-field md-outlined-select,
     .form-field textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
+    .native-select {
+      width: 100%;
+      padding: 12px 16px;
+      font-size: 16px;
+      font-family: inherit;
+      border: 1px solid var(--md-sys-color-outline);
+      border-radius: 4px;
+      background: var(--md-sys-color-surface);
+      color: var(--md-sys-color-on-surface);
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%2375796C'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      background-size: 24px;
+      padding-right: 40px;
+    }
+    .native-select:hover { border-color: var(--md-sys-color-primary); }
+    .native-select:focus {
+      outline: none;
+      border-color: var(--md-sys-color-primary);
+      border-width: 2px;
+      padding: 11px 39px 11px 15px;
+    }
     .invoice-project-list {
       border: 1px solid var(--md-sys-color-outline-variant);
       border-radius: 8px;
