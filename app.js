@@ -664,6 +664,19 @@ function loadState() {
   }
 }
 
+/** Verwijdert undefined waarden – Firestore accepteert geen undefined */
+function stripUndefined(obj) {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(stripUndefined).filter((v) => v !== undefined);
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined) continue;
+    const cleaned = stripUndefined(v);
+    if (cleaned !== undefined) out[k] = cleaned;
+  }
+  return out;
+}
+
 function saveState() {
   const user = window.__firebaseUser;
   if (!user) {
@@ -677,7 +690,7 @@ function saveState() {
   }
   const fb = window.__firebase;
   if (user && fb?.firebaseSaveUserData) {
-    fb.firebaseSaveUserData(user.uid, {
+    const data = stripUndefined({
       projects: state.projects,
       entries: state.entries,
       invoices: state.invoices,
@@ -685,7 +698,11 @@ function saveState() {
       labels: state.labels,
       settings: state.settings,
       timers: state.timers,
-    }).catch(() => {});
+    });
+    fb.firebaseSaveUserData(user.uid, data).catch((e) => {
+      console.error('[Firebase] Opslaan mislukt:', e?.message || e);
+      showSnackbar('Synchronisatie mislukt – probeer opnieuw');
+    });
   }
 }
 
@@ -1879,7 +1896,10 @@ function renderSettings() {
       <div class="card-label" style="margin-bottom:8px;">Account</div>
       ${window.__firebaseUser ? `
         <p style="font-size:13px;color:var(--md-sys-color-on-surface-variant);margin:0 0 12px;">Ingelogd als ${escapeHtml(window.__firebaseUser.email || '')}</p>
-        <md-outlined-button id="btn-logout">Uitloggen</md-outlined-button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <md-outlined-button id="btn-sync-now">Data synchroniseren</md-outlined-button>
+          <md-outlined-button id="btn-logout">Uitloggen</md-outlined-button>
+        </div>
       ` : `
         <p style="font-size:13px;color:var(--md-sys-color-on-surface-variant);margin:0 0 12px;">Niet ingelogd. Log in om je data te synchroniseren met Firebase.</p>
         <md-filled-button id="btn-login">Inloggen</md-filled-button>
@@ -1967,6 +1987,32 @@ function renderSettings() {
       applyDarkMode(darkSwitch.selected);
     });
   }
+  el.querySelector('#btn-sync-now')?.addEventListener('click', async () => {
+    const user = window.__firebaseUser;
+    const fb = window.__firebase;
+    if (!user || !fb?.firebaseLoadUserData) return;
+    showSnackbar('Synchroniseren...');
+    try {
+      const data = await fb.firebaseLoadUserData(user.uid);
+      window.__initialData = data;
+      state.projects = data?.projects || [];
+      state.entries = data?.entries || [];
+      state.invoices = data?.invoices || [];
+      state.clients = data?.clients || [];
+      state.labels = data?.labels && data.labels.length > 0 ? data.labels : DEFAULT_LABELS;
+      const t = data?.timers;
+      state.timers = Array.isArray(t) ? t.filter((x) => x?.startTime && x?.projectId) : [];
+      if (data?.settings) {
+        state.settings = { ...state.settings, ...data.settings };
+        if (data.settings.company) state.settings.company = { ...state.settings.company, ...data.settings.company };
+      }
+      switchTab(state.tab);
+      showSnackbar('Data gesynchroniseerd');
+    } catch (e) {
+      console.error('[Firebase] Sync mislukt:', e);
+      showSnackbar('Synchronisatie mislukt – controleer je internetverbinding');
+    }
+  });
   el.querySelector('#btn-logout')?.addEventListener('click', async () => {
     const fb = window.__firebase;
     if (fb?.firebaseSignOut) {

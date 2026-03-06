@@ -49,7 +49,7 @@
 
   function loadApp() {
     const s = document.createElement('script');
-    s.src = 'app.js?v=7';
+    s.src = 'app.js?v=8';
     s.onerror = () => document.getElementById('loading').innerHTML = '<p style="color:var(--md-sys-color-error);">Fout bij laden</p>';
     document.body.appendChild(s);
   }
