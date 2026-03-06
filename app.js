@@ -37,6 +37,7 @@ const formatEntryDateTime = (e) => (e?.createdAt ? formatDateTime(e.createdAt) :
 
 const today = () => new Date().toISOString().split('T')[0];
 const uid = () => Math.random().toString(36).slice(2, 9);
+const isMobile = () => window.matchMedia('(max-width: 960px)').matches;
 const addDays = (dateStr, days) => {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + days);
@@ -1200,8 +1201,17 @@ function renderProjects() {
       renderProjects();
     });
   });
-  el.querySelector('#btn-project-new')?.addEventListener('click', () => openProjectDialog());
-  el.querySelector('#btn-empty-project-new')?.addEventListener('click', () => openProjectDialog());
+  if (!el.dataset.projectBtnDelegated) {
+    el.dataset.projectBtnDelegated = '1';
+    el.addEventListener('click', (e) => {
+      const btn = e.target.closest('#btn-project-new, #btn-empty-project-new');
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        openProjectDialog();
+      }
+    });
+  }
   el.querySelectorAll('[data-nav]').forEach((a) => {
     a.addEventListener('click', (e) => { e.preventDefault(); switchTab(a.dataset.nav); });
   });
@@ -1225,7 +1235,7 @@ function renderUren() {
     return (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || '');
   });
   const filtered = state.entryFilter === 'open' ? sorted.filter((e) => !e.invoiceId && !e.notBillable) : sorted;
-  const isMobile = window.innerWidth < 600;
+  const isMobileView = window.innerWidth < 600;
   const activeProjects = projects.filter((p) => p.status === 'active');
   const runningTimers = state.timers || [];
   const busyProjectIds = new Set(runningTimers.map((t) => t.projectId));
@@ -1333,7 +1343,7 @@ function renderUren() {
       subtitle: 'Log je eerste uren om je tijd bij te houden en later te factureren.',
       cta: { action: 'btn-empty-uren-log', text: 'Uren loggen' }
     }) : ''}
-    ${filtered.length > 0 ? (isMobile ? `
+    ${filtered.length > 0 ? (isMobileView ? `
       <div class="card-list">
         ${filtered.map((e) => {
           const p = projects.find((x) => x.id === e.projectId);
@@ -1405,8 +1415,16 @@ function renderUren() {
       renderUren();
     });
   });
-  el.querySelector('#btn-uren-log')?.addEventListener('click', () => openQuickLogDialog());
-  el.querySelector('#btn-empty-uren-log')?.addEventListener('click', () => openQuickLogDialog());
+  if (!el.dataset.urenBtnDelegated) {
+    el.dataset.urenBtnDelegated = '1';
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('#btn-uren-log, #btn-empty-uren-log')) {
+        e.preventDefault();
+        e.stopPropagation();
+        openQuickLogDialog();
+      }
+    });
+  }
   el.querySelectorAll('[data-action="stop-timer"]').forEach((btn) => {
     btn.addEventListener('click', () => stopTimer(btn.dataset.timerId));
   });
@@ -1731,8 +1749,16 @@ function renderClients() {
     }).join('')}
     </div>
   `;
-  el.querySelector('#btn-client-new')?.addEventListener('click', () => openClientDialog());
-  el.querySelector('#btn-empty-client-new')?.addEventListener('click', () => openClientDialog());
+  if (!el.dataset.clientBtnDelegated) {
+    el.dataset.clientBtnDelegated = '1';
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('#btn-client-new, #btn-empty-client-new')) {
+        e.preventDefault();
+        e.stopPropagation();
+        openClientDialog();
+      }
+    });
+  }
   el.querySelectorAll('[data-action="client-dashboard"]').forEach((b) => {
     b.addEventListener('click', () => { state.viewingClientId = b.dataset.id; renderClients(); });
   });
@@ -2134,8 +2160,17 @@ function renderInvoices() {
         .join('')}
     </div>
   `;
-  el.querySelector('#btn-invoice-new')?.addEventListener('click', () => openInvoiceCreateDialog());
-  el.querySelector('#btn-empty-invoice-new')?.addEventListener('click', () => openInvoiceCreateDialog());
+  if (!el.dataset.invoiceBtnDelegated) {
+    el.dataset.invoiceBtnDelegated = '1';
+    el.addEventListener('click', (e) => {
+      const btn = e.target.closest('#btn-invoice-new, #btn-empty-invoice-new');
+      if (btn && !btn.hasAttribute('disabled')) {
+        e.preventDefault();
+        e.stopPropagation();
+        openInvoiceCreateDialog();
+      }
+    });
+  }
   el.querySelectorAll('[data-nav]').forEach((a) => {
     a.addEventListener('click', (e) => { e.preventDefault(); switchTab(a.dataset.nav); });
   });
@@ -2283,6 +2318,7 @@ function openQuickLogDialog() {
   const firstPersonId = members[0]?.id || '';
   state.quickLogForm = { projectId: firstId, date: today(), hours: '', description: '', labelId: '', notBillable: false, personId: firstPersonId };
   const content = document.getElementById('quick-log-content');
+  const useNativeSelect = isMobile();
   content.innerHTML = `
     ${activeProjects.length <= 4 ? `
       <div class="form-field">
@@ -2295,6 +2331,13 @@ function openQuickLogDialog() {
             </button>
           `).join('')}
         </div>
+      </div>
+    ` : useNativeSelect ? `
+      <div class="form-field">
+        <span class="card-label">Project</span>
+        <select id="quick-project" class="native-select native-select-mobile">
+          ${activeProjects.map((p) => `<option value="${p.id}" ${p.id === firstId ? 'selected' : ''}>${escapeHtml(p.name)}${p.client ? ` (${escapeHtml(p.client)})` : ''}</option>`).join('')}
+        </select>
       </div>
     ` : `
       <div class="form-field">
@@ -2316,21 +2359,36 @@ function openQuickLogDialog() {
     <div class="form-field">
       <md-outlined-text-field id="quick-date" label="Datum" type="date" value="${today()}"></md-outlined-text-field>
     </div>
-    ${(state.settings?.members || []).length > 0 ? `
+    ${(state.settings?.members || []).length > 0 ? (useNativeSelect ? `
+    <div class="form-field">
+      <span class="card-label">Wie heeft gewerkt</span>
+      <select id="quick-person" class="native-select native-select-mobile">
+        ${(state.settings.members || []).map((m) => `<option value="${escapeHtml(m.id)}" ${m.id === firstPersonId ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}
+      </select>
+    </div>
+    ` : `
     <div class="form-field">
       <md-outlined-select id="quick-person" label="Wie heeft gewerkt" value="${state.quickLogForm.personId || (state.settings.members || [])[0]?.id || ''}" menu-positioning="popover">
         ${(state.settings.members || []).map((m) => `<md-select-option value="${escapeHtml(m.id)}"><div slot="headline">${escapeHtml(m.name)}</div></md-select-option>`).join('')}
       </md-outlined-select>
     </div>
-    ` : ''}
-    ${state.labels?.length > 0 ? `
+    `) : ''}
+    ${state.labels?.length > 0 ? (useNativeSelect ? `
+    <div class="form-field">
+      <span class="card-label">Onderwerp / type werk</span>
+      <select id="quick-label" class="native-select native-select-mobile">
+        <option value="" ${!state.quickLogForm.labelId ? 'selected' : ''}>Geen</option>
+        ${state.labels.map((l) => `<option value="${escapeHtml(l.id)}" ${l.id === state.quickLogForm.labelId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
+      </select>
+    </div>
+    ` : `
     <div class="form-field">
       <md-outlined-select id="quick-label" label="Onderwerp / type werk" value="${state.quickLogForm.labelId || ''}" menu-positioning="popover">
         <md-select-option value=""><div slot="headline">Geen</div></md-select-option>
         ${state.labels.map((l) => `<md-select-option value="${escapeHtml(l.id)}"><div slot="headline">${escapeHtml(l.name)}</div></md-select-option>`).join('')}
       </md-outlined-select>
     </div>
-    ` : ''}
+    `) : ''}
     <div class="form-field">
       <md-outlined-text-field id="quick-description" label="Omschrijving (optioneel)" placeholder="Wat heb je gedaan?"></md-outlined-text-field>
     </div>

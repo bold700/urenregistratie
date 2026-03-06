@@ -675,7 +675,7 @@
       z-index: 0;
     }
     @media (max-width: 600px) {
-      .fab-uren { bottom: 82px; }
+      .fab-uren { bottom: 24px; }
     }
     .form-hint {
       display: flex;
@@ -799,6 +799,15 @@
     md-outlined-select::part(menu),
     md-filled-select::part(menu) {
       max-height: min(80vh, 480px);
+    }
+    @media (max-width: 960px) {
+      .native-select-mobile {
+        min-height: 56px;
+        font-size: 16px;
+      }
+      md-dialog .form-field {
+        margin-bottom: 20px;
+      }
     }
     .login-screen {
       position: fixed; inset: 0; z-index: 10000;
