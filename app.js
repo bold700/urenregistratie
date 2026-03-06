@@ -1261,23 +1261,43 @@ function renderUren() {
                 </button>
               `).join('')}
             </div>
-          ` : `
+          ` : (() => {
+            const useNative = isMobile();
+            return useNative ? `
+            <div class="timer-input-row" style="flex-direction:column;gap:8px;">
+              <div class="form-field" style="margin:0;">
+                <span class="card-label">Project</span>
+                <select id="timer-project-select" class="native-select native-select-mobile">
+                  ${availableProjects.map((p, i) => `<option value="${p.id}" ${i === 0 ? 'selected' : ''}>${escapeHtml(p.name)}${p.client ? ` (${escapeHtml(p.client)})` : ''}</option>`).join('')}
+                </select>
+              </div>
+              <md-outlined-text-field id="timer-description-input" label="Omschrijving (optioneel)" placeholder="Wat doe je?" style="width:100%;"></md-outlined-text-field>
+            </div>
+            ` : `
             <div class="timer-input-row">
-              <md-outlined-select id="timer-project-select" label="Project" value="${availableProjects[0]?.id || ''}" menu-positioning="absolute" style="flex:1;min-width:0;">
+              <md-outlined-select id="timer-project-select" label="Project" value="${availableProjects[0]?.id || ''}" menu-positioning="popover" style="flex:1;min-width:0;">
                 ${availableProjects.map((p) => `<md-select-option value="${p.id}"><div slot="headline">${escapeHtml(p.name)}</div><div slot="supporting-text">${escapeHtml(p.client || '—')}</div></md-select-option>`).join('')}
               </md-outlined-select>
               <md-outlined-text-field id="timer-description-input" label="Omschrijving (optioneel)" placeholder="Wat doe je?"></md-outlined-text-field>
             </div>
-          `}
+            `;
+          })()}
         </div>
         ${availableProjects.length <= 4 ? `<md-outlined-text-field id="timer-description-input" label="Omschrijving (optioneel)" placeholder="Wat doe je?" style="margin-top:8px;width:100%;max-width:320px;"></md-outlined-text-field>` : ''}
-        ${(state.settings?.members || []).length > 0 ? `
+        ${(state.settings?.members || []).length > 0 ? (isMobile() ? `
         <div class="form-field" style="margin-top:8px;max-width:200px;">
-          <md-outlined-select id="timer-person-select" label="Wie werkt" value="${(state.settings.members || [])[0]?.id || ''}" menu-positioning="absolute">
+          <span class="card-label">Wie werkt</span>
+          <select id="timer-person-select" class="native-select native-select-mobile">
+            ${(state.settings.members || []).map((m, i) => `<option value="${escapeHtml(m.id)}" ${i === 0 ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}
+          </select>
+        </div>
+        ` : `
+        <div class="form-field" style="margin-top:8px;max-width:200px;">
+          <md-outlined-select id="timer-person-select" label="Wie werkt" value="${(state.settings.members || [])[0]?.id || ''}" menu-positioning="popover">
             ${(state.settings.members || []).map((m) => `<md-select-option value="${escapeHtml(m.id)}"><div slot="headline">${escapeHtml(m.name)}</div></md-select-option>`).join('')}
           </md-outlined-select>
         </div>
-        ` : ''}
+        `) : ''}
         <div class="timer-actions-row">
           <md-filled-button id="btn-timer-start"><md-icon slot="icon">play_arrow</md-icon> Start timer</md-filled-button>
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
@@ -2278,7 +2298,7 @@ function openQuickLogDialog() {
       </div>
     ` : `
       <div class="form-field">
-        <md-outlined-select id="quick-project" label="Project" value="${firstId}" menu-positioning="absolute">
+        <md-outlined-select id="quick-project" label="Project" value="${firstId}" menu-positioning="popover">
           ${activeProjects.map((p) => `<md-select-option value="${p.id}"><div slot="headline">${escapeHtml(p.name)}</div><div slot="supporting-text">${escapeHtml(p.client || '—')}</div></md-select-option>`).join('')}
         </md-outlined-select>
       </div>
@@ -2298,14 +2318,14 @@ function openQuickLogDialog() {
     </div>
     ${(state.settings?.members || []).length > 0 ? `
     <div class="form-field">
-      <md-outlined-select id="quick-person" label="Wie heeft gewerkt" value="${state.quickLogForm.personId || (state.settings.members || [])[0]?.id || ''}" menu-positioning="absolute">
+      <md-outlined-select id="quick-person" label="Wie heeft gewerkt" value="${state.quickLogForm.personId || (state.settings.members || [])[0]?.id || ''}" menu-positioning="popover">
         ${(state.settings.members || []).map((m) => `<md-select-option value="${escapeHtml(m.id)}"><div slot="headline">${escapeHtml(m.name)}</div></md-select-option>`).join('')}
       </md-outlined-select>
     </div>
     ` : ''}
     ${state.labels?.length > 0 ? `
     <div class="form-field">
-      <md-outlined-select id="quick-label" label="Onderwerp / type werk" value="${state.quickLogForm.labelId || ''}" menu-positioning="absolute">
+      <md-outlined-select id="quick-label" label="Onderwerp / type werk" value="${state.quickLogForm.labelId || ''}" menu-positioning="popover">
         <md-select-option value=""><div slot="headline">Geen</div></md-select-option>
         ${state.labels.map((l) => `<md-select-option value="${escapeHtml(l.id)}"><div slot="headline">${escapeHtml(l.name)}</div></md-select-option>`).join('')}
       </md-outlined-select>
@@ -2396,6 +2416,7 @@ function saveQuickLog() {
 function openProjectDialog(editId = null) {
   const p = editId ? state.projects.find((x) => x.id === editId) : null;
   const clients = state.clients;
+  const useNativeSelect = isMobile();
   document.getElementById('project-dialog-title').textContent = p ? 'Project bewerken' : 'Nieuw project';
   state.projectForm = p ? { ...p, rate: String(p.rate || ''), budget: String(p.budget || ''), hoursPerPeriod: String(p.hoursPerPeriod || '') } : { name: '', client: clients[0]?.name || '', type: 'hourly', rate: '', budget: '', period: 'month', hoursPerPeriod: '', status: 'active', notes: '' };
   const content = document.getElementById('project-dialog-content');
@@ -2408,21 +2429,39 @@ function openProjectDialog(editId = null) {
         <span>Voeg eerst een klant toe om een project aan te maken.</span>
         <md-text-button data-nav="clients">Naar klanten →</md-text-button>
       </div>
+    ` : useNativeSelect ? `
+      <div class="form-field">
+        <span class="card-label">Klant *</span>
+        <select id="project-client" class="native-select native-select-mobile" required>
+          <option value="">Selecteer klant...</option>
+          ${clients.map((c) => `<option value="${escapeHtml(c.name)}" ${state.projectForm.client === c.name ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+        </select>
+      </div>
     ` : `
       <div class="form-field">
-        <md-outlined-select id="project-client" label="Klant *" value="${escapeHtml(state.projectForm.client || '')}" menu-positioning="absolute" required>
+        <md-outlined-select id="project-client" label="Klant *" value="${escapeHtml(state.projectForm.client || '')}" menu-positioning="popover" required>
           <md-select-option value=""><div slot="headline">Selecteer klant...</div></md-select-option>
           ${clients.map((c) => `<md-select-option value="${escapeHtml(c.name)}" ${state.projectForm.client === c.name ? 'selected' : ''}><div slot="headline">${escapeHtml(c.name)}</div></md-select-option>`).join('')}
         </md-outlined-select>
       </div>
     `}
     <div class="form-field">
-      <md-outlined-select id="project-type" label="Facturatie type" value="${state.projectForm.type || 'hourly'}" menu-positioning="absolute">
+      ${useNativeSelect ? `
+      <span class="card-label">Facturatie type</span>
+      <select id="project-type" class="native-select native-select-mobile">
+        <option value="hourly" ${state.projectForm.type === 'hourly' ? 'selected' : ''}>Per uur</option>
+        <option value="fixed" ${state.projectForm.type === 'fixed' ? 'selected' : ''}>Vaste prijs</option>
+        <option value="retainer" ${state.projectForm.type === 'retainer' ? 'selected' : ''}>Retainer (vast bedrag per periode)</option>
+        <option value="retainer_hours" ${state.projectForm.type === 'retainer_hours' ? 'selected' : ''}>Retainer (uren per periode)</option>
+      </select>
+      ` : `
+      <md-outlined-select id="project-type" label="Facturatie type" value="${state.projectForm.type || 'hourly'}" menu-positioning="popover">
         <md-select-option value="hourly"><div slot="headline">Per uur</div></md-select-option>
         <md-select-option value="fixed"><div slot="headline">Vaste prijs</div></md-select-option>
         <md-select-option value="retainer"><div slot="headline">Retainer (vast bedrag per periode)</div></md-select-option>
         <md-select-option value="retainer_hours"><div slot="headline">Retainer (uren per periode)</div></md-select-option>
       </md-outlined-select>
+      `}
     </div>
     <div id="project-fields-hourly" class="form-grid-2" style="${state.projectForm.type !== 'hourly' ? 'display:none' : ''}">
       <div class="form-field">
@@ -2437,12 +2476,22 @@ function openProjectDialog(editId = null) {
         <md-outlined-text-field id="project-retainer-rate" label="Bedrag (€)" type="number" inputmode="decimal" value="${state.projectForm.rate}"></md-outlined-text-field>
       </div>
       <div class="form-field">
-        <md-outlined-select id="project-period" label="Periode" value="${state.projectForm.period || 'month'}" menu-positioning="absolute">
+        ${useNativeSelect ? `
+        <span class="card-label">Periode</span>
+        <select id="project-period" class="native-select native-select-mobile">
+          <option value="week" ${state.projectForm.period === 'week' ? 'selected' : ''}>Per week</option>
+          <option value="4weeks" ${state.projectForm.period === '4weeks' ? 'selected' : ''}>Per 4 weken</option>
+          <option value="month" ${(state.projectForm.period || 'month') === 'month' ? 'selected' : ''}>Per maand</option>
+          <option value="quarter" ${state.projectForm.period === 'quarter' ? 'selected' : ''}>Per kwartaal</option>
+        </select>
+        ` : `
+        <md-outlined-select id="project-period" label="Periode" value="${state.projectForm.period || 'month'}" menu-positioning="popover">
           <md-select-option value="week"><div slot="headline">Per week</div></md-select-option>
           <md-select-option value="4weeks"><div slot="headline">Per 4 weken</div></md-select-option>
           <md-select-option value="month"><div slot="headline">Per maand</div></md-select-option>
           <md-select-option value="quarter"><div slot="headline">Per kwartaal</div></md-select-option>
         </md-outlined-select>
+        `}
       </div>
     </div>
     <div id="project-fields-retainer-hours" class="form-grid-2" style="${state.projectForm.type !== 'retainer_hours' ? 'display:none' : ''}">
@@ -2453,22 +2502,40 @@ function openProjectDialog(editId = null) {
         <md-outlined-text-field id="project-retainer-hours-rate" label="Uurtarief (€)" type="number" inputmode="decimal" value="${state.projectForm.rate}" placeholder="bijv. 108"></md-outlined-text-field>
       </div>
       <div class="form-field" style="grid-column:1/-1;">
-        <md-outlined-select id="project-retainer-hours-period" label="Periode" value="${state.projectForm.period || 'week'}" menu-positioning="absolute">
+        ${useNativeSelect ? `
+        <span class="card-label">Periode</span>
+        <select id="project-retainer-hours-period" class="native-select native-select-mobile">
+          <option value="week" ${(state.projectForm.period || 'week') === 'week' ? 'selected' : ''}>Per week</option>
+          <option value="4weeks" ${state.projectForm.period === '4weeks' ? 'selected' : ''}>Per 4 weken</option>
+          <option value="month" ${state.projectForm.period === 'month' ? 'selected' : ''}>Per maand</option>
+          <option value="quarter" ${state.projectForm.period === 'quarter' ? 'selected' : ''}>Per kwartaal</option>
+        </select>
+        ` : `
+        <md-outlined-select id="project-retainer-hours-period" label="Periode" value="${state.projectForm.period || 'week'}" menu-positioning="popover">
           <md-select-option value="week"><div slot="headline">Per week</div></md-select-option>
           <md-select-option value="4weeks"><div slot="headline">Per 4 weken</div></md-select-option>
           <md-select-option value="month"><div slot="headline">Per maand</div></md-select-option>
           <md-select-option value="quarter"><div slot="headline">Per kwartaal</div></md-select-option>
         </md-outlined-select>
+        `}
       </div>
     </div>
     <div id="project-fields-fixed" class="form-field" style="${state.projectForm.type !== 'fixed' ? 'display:none' : ''}">
       <md-outlined-text-field id="project-fixed-budget" label="Vaste prijs (€)" type="number" inputmode="decimal" value="${state.projectForm.budget}"></md-outlined-text-field>
     </div>
     <div class="form-field">
-      <md-outlined-select id="project-status" label="Status" value="${state.projectForm.status || 'active'}" menu-positioning="absolute">
+      ${useNativeSelect ? `
+      <span class="card-label">Status</span>
+      <select id="project-status" class="native-select native-select-mobile">
+        <option value="active" ${(state.projectForm.status || 'active') === 'active' ? 'selected' : ''}>Actief</option>
+        <option value="inactive" ${state.projectForm.status === 'inactive' ? 'selected' : ''}>Inactief</option>
+      </select>
+      ` : `
+      <md-outlined-select id="project-status" label="Status" value="${state.projectForm.status || 'active'}" menu-positioning="popover">
         <md-select-option value="active"><div slot="headline">Actief</div></md-select-option>
         <md-select-option value="inactive"><div slot="headline">Inactief</div></md-select-option>
       </md-outlined-select>
+      `}
     </div>
     <div class="form-field">
       <md-outlined-text-field id="project-notes" label="Notities (optioneel)" value="${escapeHtml(state.projectForm.notes || '')}"></md-outlined-text-field>
@@ -2677,12 +2744,21 @@ function renderInvoiceCreateContent() {
     state.selectedEntries = state.selectedEntries.includes(id) ? state.selectedEntries.filter((x) => x !== id) : [...state.selectedEntries, id];
     renderInvoiceCreateContent();
   };
+  const useNativeSelect = isMobile();
   content.innerHTML = `
     <div class="form-field">
-      <md-outlined-select id="invoice-client" label="Klant" value="${escapeHtml(state.invoiceForm.client || '')}" menu-positioning="absolute">
+      ${useNativeSelect ? `
+      <span class="card-label">Klant</span>
+      <select id="invoice-client" class="native-select native-select-mobile">
+        <option value="">Selecteer klant...</option>
+        ${Object.keys(clientGroupMap).map((c) => `<option value="${escapeHtml(c)}" ${state.invoiceForm.client === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+      </select>
+      ` : `
+      <md-outlined-select id="invoice-client" label="Klant" value="${escapeHtml(state.invoiceForm.client || '')}" menu-positioning="popover">
         <md-select-option value=""><div slot="headline">Selecteer klant...</div></md-select-option>
         ${Object.keys(clientGroupMap).map((c) => `<md-select-option value="${escapeHtml(c)}" ${state.invoiceForm.client === c ? 'selected' : ''}><div slot="headline">${escapeHtml(c)}</div></md-select-option>`).join('')}
       </md-outlined-select>
+      `}
     </div>
     ${state.invoiceForm.client ? `
       <div class="form-field">
