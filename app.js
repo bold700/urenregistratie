@@ -1379,7 +1379,10 @@ function renderUren() {
               </div>
               <div style="display:flex;align-items:center;gap:8px;">
                 <span style="font-weight:900;color:var(--md-sys-color-primary);font-size:16px;">${e.hours}u</span>
-                ${!e.invoiceId ? `<md-icon-button data-action="delete-entry" data-id="${e.id}" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>` : ''}
+                ${!e.invoiceId ? `
+                  <md-icon-button data-action="edit-entry" data-id="${e.id}" aria-label="Bewerken"><md-icon>edit</md-icon></md-icon-button>
+                  <md-icon-button data-action="delete-entry" data-id="${e.id}" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>
+                ` : ''}
               </div>
             </div>
           `;
@@ -1418,7 +1421,10 @@ function renderUren() {
               </td>
               <td class="col-datum" style="font-size:11px;">${formatEntryDateTime(e)}</td>
               <td class="col-uren"><span style="font-weight:700;color:var(--md-sys-color-primary);">${e.hours}u</span></td>
-              <td class="col-actions">${!e.invoiceId ? `<md-icon-button data-action="delete-entry" data-id="${e.id}" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>` : ''}</td>
+              <td class="col-actions">${!e.invoiceId ? `
+                <md-icon-button data-action="edit-entry" data-id="${e.id}" aria-label="Bewerken"><md-icon>edit</md-icon></md-icon-button>
+                <md-icon-button data-action="delete-entry" data-id="${e.id}" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>
+              ` : ''}</td>
             </tr>
           `;
         }).join('')}
@@ -1466,6 +1472,9 @@ function renderUren() {
   el.querySelector('#timer-project-select')?.addEventListener('change', () => {});
   el.querySelectorAll('[data-nav]').forEach((a) => {
     a.addEventListener('click', (e) => { e.preventDefault(); switchTab(a.dataset.nav); });
+  });
+  el.querySelectorAll('[data-action="edit-entry"]').forEach((b) => {
+    b.addEventListener('click', () => openQuickLogDialog(b.dataset.id));
   });
   el.querySelectorAll('[data-action="delete-entry"]').forEach((b) => {
     b.addEventListener('click', () => openConfirmDeleteDialog('entry', b.dataset.id));
@@ -2357,12 +2366,24 @@ function executePendingDelete() {
   showSnackbar('Verwijderd', undoFn ? { undo: undoFn } : {});
 }
 
-function openQuickLogDialog() {
+function openQuickLogDialog(editEntryId = null) {
   const activeProjects = state.projects.filter((p) => p.status === 'active');
-  const firstId = activeProjects[0]?.id || '';
   const members = state.settings?.members || [];
+  const entry = editEntryId ? state.entries.find((e) => e.id === editEntryId) : null;
+  state.editingEntryId = editEntryId && entry ? editEntryId : null;
+  const firstId = activeProjects[0]?.id || '';
   const firstPersonId = members[0]?.id || '';
-  state.quickLogForm = { projectId: firstId, date: today(), hours: '', description: '', labelId: '', notBillable: false, personId: firstPersonId };
+  state.quickLogForm = entry ? {
+    projectId: entry.projectId || firstId,
+    date: entry.date || today(),
+    hours: String(entry.hours ?? ''),
+    description: entry.description || '',
+    labelId: entry.labelId || '',
+    notBillable: entry.notBillable ?? false,
+    personId: entry.personId || firstPersonId,
+  } : { projectId: firstId, date: today(), hours: '', description: '', labelId: '', notBillable: false, personId: firstPersonId };
+  const form = state.quickLogForm;
+  const projId = form.projectId || firstId;
   const content = document.getElementById('quick-log-content');
   const useNativeSelect = isMobile();
   content.innerHTML = `
@@ -2371,7 +2392,7 @@ function openQuickLogDialog() {
         <span class="card-label">Project</span>
         <div class="project-pills">
           ${activeProjects.map((p) => `
-            <button type="button" class="project-pill ${p.id === firstId ? 'selected' : ''}" data-project-id="${p.id}">
+            <button type="button" class="project-pill ${p.id === projId ? 'selected' : ''}" data-project-id="${p.id}">
               <span class="name">${escapeHtml(p.name)}</span>
               ${p.client ? `<span class="client">${escapeHtml(p.client)}</span>` : ''}
             </button>
@@ -2382,12 +2403,12 @@ function openQuickLogDialog() {
       <div class="form-field">
         <span class="card-label">Project</span>
         <select id="quick-project" class="native-select native-select-mobile">
-          ${activeProjects.map((p) => `<option value="${p.id}" ${p.id === firstId ? 'selected' : ''}>${escapeHtml(p.name)}${p.client ? ` (${escapeHtml(p.client)})` : ''}</option>`).join('')}
+          ${activeProjects.map((p) => `<option value="${p.id}" ${p.id === projId ? 'selected' : ''}>${escapeHtml(p.name)}${p.client ? ` (${escapeHtml(p.client)})` : ''}</option>`).join('')}
         </select>
       </div>
     ` : `
       <div class="form-field">
-        <md-outlined-select id="quick-project" label="Project" value="${firstId}" menu-positioning="popover">
+        <md-outlined-select id="quick-project" label="Project" value="${projId}" menu-positioning="popover">
           ${activeProjects.map((p) => `<md-select-option value="${p.id}"><div slot="headline">${escapeHtml(p.name)}</div><div slot="supporting-text">${escapeHtml(p.client || '—')}</div></md-select-option>`).join('')}
         </md-outlined-select>
       </div>
@@ -2396,25 +2417,25 @@ function openQuickLogDialog() {
       <span class="card-label">Uren</span>
       <div class="hours-quick-row">
         ${[0.5, 1, 1.5, 2, 3, 4].map((h) => `
-          <button type="button" class="hours-quick-btn" data-hours="${h}">${h}u</button>
+          <button type="button" class="hours-quick-btn ${String(h) === form.hours ? 'selected' : ''}" data-hours="${h}">${h}u</button>
         `).join('')}
         <span style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">of:</span>
-        <md-outlined-text-field id="quick-hours" type="number" inputmode="decimal" step="0.25" min="0.25" placeholder="bijv. 6.5" style="width:100px;"></md-outlined-text-field>
+        <md-outlined-text-field id="quick-hours" type="number" inputmode="decimal" step="0.25" min="0.25" placeholder="bijv. 6.5" value="${escapeHtml(form.hours)}" style="width:100px;"></md-outlined-text-field>
       </div>
     </div>
     <div class="form-field">
-      <md-outlined-text-field id="quick-date" label="Datum" type="date" value="${today()}"></md-outlined-text-field>
+      <md-outlined-text-field id="quick-date" label="Datum" type="date" value="${form.date || today()}"></md-outlined-text-field>
     </div>
     ${(state.settings?.members || []).length > 0 ? (useNativeSelect ? `
     <div class="form-field">
       <span class="card-label">Wie heeft gewerkt</span>
       <select id="quick-person" class="native-select native-select-mobile">
-        ${(state.settings.members || []).map((m) => `<option value="${escapeHtml(m.id)}" ${m.id === firstPersonId ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}
+        ${(state.settings.members || []).map((m) => `<option value="${escapeHtml(m.id)}" ${m.id === (form.personId || firstPersonId) ? 'selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}
       </select>
     </div>
     ` : `
     <div class="form-field">
-      <md-outlined-select id="quick-person" label="Wie heeft gewerkt" value="${state.quickLogForm.personId || (state.settings.members || [])[0]?.id || ''}" menu-positioning="popover">
+      <md-outlined-select id="quick-person" label="Wie heeft gewerkt" value="${form.personId || firstPersonId || ''}" menu-positioning="popover">
         ${(state.settings.members || []).map((m) => `<md-select-option value="${escapeHtml(m.id)}"><div slot="headline">${escapeHtml(m.name)}</div></md-select-option>`).join('')}
       </md-outlined-select>
     </div>
@@ -2423,20 +2444,20 @@ function openQuickLogDialog() {
     <div class="form-field">
       <span class="card-label">Onderwerp / type werk</span>
       <select id="quick-label" class="native-select native-select-mobile">
-        <option value="" ${!state.quickLogForm.labelId ? 'selected' : ''}>Geen</option>
-        ${state.labels.map((l) => `<option value="${escapeHtml(l.id)}" ${l.id === state.quickLogForm.labelId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
+        <option value="" ${!form.labelId ? 'selected' : ''}>Geen</option>
+        ${state.labels.map((l) => `<option value="${escapeHtml(l.id)}" ${l.id === form.labelId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}
       </select>
     </div>
     ` : `
     <div class="form-field">
-      <md-outlined-select id="quick-label" label="Onderwerp / type werk" value="${state.quickLogForm.labelId || ''}" menu-positioning="popover">
+      <md-outlined-select id="quick-label" label="Onderwerp / type werk" value="${form.labelId || ''}" menu-positioning="popover">
         <md-select-option value=""><div slot="headline">Geen</div></md-select-option>
         ${state.labels.map((l) => `<md-select-option value="${escapeHtml(l.id)}"><div slot="headline">${escapeHtml(l.name)}</div></md-select-option>`).join('')}
       </md-outlined-select>
     </div>
     `) : ''}
     <div class="form-field">
-      <md-outlined-text-field id="quick-description" label="Omschrijving (optioneel)" placeholder="Wat heb je gedaan?"></md-outlined-text-field>
+      <md-outlined-text-field id="quick-description" label="Omschrijving (optioneel)" placeholder="Wat heb je gedaan?" value="${escapeHtml(form.description || '')}"></md-outlined-text-field>
     </div>
     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
       <md-checkbox id="quick-not-billable" touch-target="wrapper"></md-checkbox>
@@ -2444,6 +2465,10 @@ function openQuickLogDialog() {
     </label>
     <div id="quick-log-error" class="error-msg" style="display:none;"></div>
   `;
+  const headlineEl = document.querySelector('#quick-log-dialog [slot="headline"]');
+  if (headlineEl) headlineEl.textContent = state.editingEntryId ? 'Uren bewerken' : 'Uren loggen';
+  const nbCheckbox = content.querySelector('#quick-not-billable');
+  if (nbCheckbox) nbCheckbox.checked = form.notBillable;
   content.querySelectorAll('.project-pill').forEach((btn) => {
     btn.addEventListener('click', () => {
       content.querySelectorAll('.project-pill').forEach((b) => b.classList.remove('selected'));
@@ -2493,28 +2518,49 @@ function saveQuickLog() {
   if (!form.projectId) { errEl.textContent = 'Selecteer een project'; errEl.style.display = 'block'; return; }
   const hours = parseFloat(form.hours);
   if (!form.hours || hours <= 0) { errEl.textContent = 'Vul uren in'; errEl.style.display = 'block'; return; }
-  const entryId = uid();
   const { labelId, personId, ...rest } = form;
-  state.entries.push({
-    ...rest,
-    id: entryId,
-    hours,
-    labelId: labelId || undefined,
-    personId: personId || undefined,
-    createdAt: new Date().toISOString(),
-  });
-  saveState();
-  document.getElementById('quick-log-dialog').close();
-  renderUren();
-  renderDashboard();
-  showSnackbar('Uren opgeslagen', {
-    undo: () => {
-      state.entries = state.entries.filter((e) => e.id !== entryId);
-      saveState();
-      renderUren();
-      renderDashboard();
-    },
-  });
+  const editingId = state.editingEntryId;
+  if (editingId) {
+    const idx = state.entries.findIndex((e) => e.id === editingId);
+    if (idx >= 0) {
+      const existing = state.entries[idx];
+      state.entries[idx] = {
+        ...existing,
+        ...rest,
+        hours,
+        labelId: labelId || undefined,
+        personId: personId || undefined,
+      };
+    }
+    state.editingEntryId = null;
+    saveState();
+    document.getElementById('quick-log-dialog').close();
+    renderUren();
+    renderDashboard();
+    showSnackbar('Uren bijgewerkt');
+  } else {
+    const entryId = uid();
+    state.entries.push({
+      ...rest,
+      id: entryId,
+      hours,
+      labelId: labelId || undefined,
+      personId: personId || undefined,
+      createdAt: new Date().toISOString(),
+    });
+    saveState();
+    document.getElementById('quick-log-dialog').close();
+    renderUren();
+    renderDashboard();
+    showSnackbar('Uren opgeslagen', {
+      undo: () => {
+        state.entries = state.entries.filter((e) => e.id !== entryId);
+        saveState();
+        renderUren();
+        renderDashboard();
+      },
+    });
+  }
 }
 
 function openProjectDialog(editId = null) {
