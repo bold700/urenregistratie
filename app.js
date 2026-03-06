@@ -3125,8 +3125,8 @@ function switchTab(tabId) {
   else if (tabId === 'invoices') renderInvoices();
   else if (tabId === 'clients') renderClients();
   else if (tabId === 'settings') renderSettings();
-  const fab = document.getElementById('fab-quick-log');
-  if (fab) fab.style.display = state.projects.length > 0 ? 'flex' : 'none';
+  const fabWrap = document.getElementById('fab-menu-wrap');
+  if (fabWrap) fabWrap.style.display = (state.clients.length > 0 || state.projects.length > 0) ? 'flex' : 'none';
   updateTimerHeader();
 }
 
@@ -3212,7 +3212,42 @@ function init() {
       }
     });
   }
-  document.getElementById('fab-quick-log')?.addEventListener('click', () => openQuickLogDialog());
+  const fabMain = document.getElementById('fab-main');
+  const fabWrap = document.getElementById('fab-menu-wrap');
+  const fabMainIcon = document.getElementById('fab-main-icon');
+  const handleFabMenuAction = (action) => {
+    fabWrap?.classList.remove('expanded');
+    if (fabMainIcon) fabMainIcon.textContent = 'add';
+    if (action === 'quick-log') {
+      if (state.projects.length > 0) openQuickLogDialog();
+      else { showSnackbar('Voeg eerst een project toe'); switchTab('projects'); }
+    } else if (action === 'new-client') openClientDialog();
+    else if (action === 'new-project') {
+      if (state.clients.length > 0) openProjectDialog();
+      else { showSnackbar('Voeg eerst een klant toe'); switchTab('clients'); }
+    } else if (action === 'new-invoice') {
+      const { clientNames } = getClientGroupMap();
+      if (clientNames.length > 0) openInvoiceCreateDialog();
+      else { showSnackbar('Voeg eerst een klant en project toe'); switchTab('clients'); }
+    }
+  };
+  fabMain?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isExpanded = fabWrap?.classList.toggle('expanded');
+    if (fabMainIcon) fabMainIcon.textContent = isExpanded ? 'close' : 'add';
+  });
+  document.querySelectorAll('.fab-menu-item').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleFabMenuAction(btn.dataset.action);
+    });
+  });
+  document.addEventListener('click', () => {
+    if (fabWrap?.classList.contains('expanded')) {
+      fabWrap.classList.remove('expanded');
+      if (fabMainIcon) fabMainIcon.textContent = 'add';
+    }
+  });
   document.getElementById('btn-quick-log-save')?.addEventListener('click', saveQuickLog);
   document.getElementById('btn-quick-log-close')?.addEventListener('click', () => document.getElementById('quick-log-dialog').close());
   document.getElementById('btn-project-save')?.addEventListener('click', saveProject);
@@ -3240,11 +3275,10 @@ function init() {
     confirmDlg.addEventListener('cancel', () => { state.pendingDelete = null; });
   }
   const appHeader = document.querySelector('.app-header');
-  const fab = document.getElementById('fab-quick-log');
   const updateHeaderInert = () => {
     const anyOpen = document.querySelector('md-dialog[open]');
     if (appHeader) appHeader.inert = !!anyOpen;
-    if (fab) fab.style.display = anyOpen ? 'none' : (state.projects.length > 0 ? 'flex' : 'none');
+    if (fabWrap) fabWrap.style.display = anyOpen ? 'none' : (state.clients.length > 0 || state.projects.length > 0 ? 'flex' : 'none');
   };
   const injectScrimStyle = (dialog) => {
     if (!dialog?.shadowRoot || dialog.dataset.scrimStyled) return;

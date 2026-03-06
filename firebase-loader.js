@@ -32,14 +32,15 @@
     }
 
     console.log('[Firebase] Ingelogd als', user.email, '(uid:', user.uid, ')');
+    // Direct app-shell tonen zodat gebruiker laadskelet ziet (voorkomt "vastgelopen" gevoel)
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app-shell').style.display = '';
     const data = await fb.firebaseLoadUserData(user.uid);
     window.__firebaseUser = user;
     window.__firebase = fb;
     window.__initialData = data;
     window.__isNewFirebaseUser = !data || (!data.projects?.length && !data.entries?.length);
     console.log('[Firebase] Data geladen:', data ? `${data.clients?.length || 0} klanten, ${data.projects?.length || 0} projecten` : 'geen data');
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app-shell').style.display = '';
     loadApp();
   } catch (e) {
     console.error('[Firebase] Init mislukt:', e);
@@ -48,7 +49,7 @@
 
   function loadApp() {
     const s = document.createElement('script');
-    s.src = 'app.js?v=6';
+    s.src = 'app.js?v=7';
     s.onerror = () => document.getElementById('loading').innerHTML = '<p style="color:var(--md-sys-color-error);">Fout bij laden</p>';
     document.body.appendChild(s);
   }

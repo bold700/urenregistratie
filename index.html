@@ -663,19 +663,56 @@
       color: var(--md-sys-color-on-primary-container);
       border-color: var(--md-sys-color-primary);
     }
-    .fab-uren {
+    /* M3 FAB menu – https://m3.material.io/components/fab-menu/specs */
+    .fab-menu-wrap {
       position: fixed;
-      bottom: 24px;
-      right: 20px;
+      bottom: 16px;
+      right: 16px;
       z-index: 45;
+      display: flex;
+      flex-direction: column-reverse;
+      align-items: flex-end;
+      gap: 8px;
     }
-    body:has(md-dialog[open]) .fab-uren {
+    .fab-menu-items {
+      display: none;
+      flex-direction: column-reverse;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .fab-menu-wrap.expanded .fab-menu-items {
+      display: flex;
+    }
+    .fab-menu-item {
+      height: 56px;
+      min-height: 56px;
+      padding: 0 24px 0 24px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: none;
+      border-radius: 16px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.1px;
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 1px 3px 1px rgba(0,0,0,0.15);
+      white-space: nowrap;
+    }
+    .fab-menu-item:hover { opacity: 0.92; }
+    .fab-menu-item:active { opacity: 0.88; }
+    .fab-menu-item md-icon {
+      font-size: 24px;
+      width: 24px;
+      height: 24px;
+    }
+    body:has(md-dialog[open]) .fab-menu-wrap {
       visibility: hidden;
       pointer-events: none;
       z-index: 0;
-    }
-    @media (max-width: 600px) {
-      .fab-uren { bottom: 24px; }
     }
     .form-hint {
       display: flex;
@@ -705,6 +742,18 @@
     }
     md-dialog:not([open]) { display: none !important; }
     md-dialog [slot="content"] { position: relative; }
+    /* Dialog actions: rij, primary rechts; close/annuleren links, zelfde kleurtoken */
+    md-dialog [slot="actions"] {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+    }
+    md-dialog [slot="actions"] md-text-button {
+      --md-text-button-label-text-color: var(--md-sys-color-primary);
+    }
     .danger { --md-filled-button-container-color: var(--md-sys-color-error); --md-filled-button-label-text-color: var(--md-sys-color-on-error); }
     .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; padding-top: 8px; }
     .pdf-preview {
@@ -916,17 +965,37 @@
     </div>
   </div>
 
-  <md-fab class="fab-uren" variant="primary" label="Uren loggen (Ctrl+U)" aria-label="Uren loggen (Ctrl+U)" id="fab-quick-log" style="display:none;">
-    <md-icon slot="icon">add</md-icon>
-  </md-fab>
+  <div class="fab-menu-wrap" id="fab-menu-wrap" style="display:none;">
+    <div class="fab-menu-items" id="fab-menu-items">
+      <button type="button" class="fab-menu-item" data-action="new-invoice">
+        <md-icon>receipt_long</md-icon>
+        <span>Factuur aanmaken</span>
+      </button>
+      <button type="button" class="fab-menu-item" data-action="new-project">
+        <md-icon>folder</md-icon>
+        <span>Nieuw project</span>
+      </button>
+      <button type="button" class="fab-menu-item" data-action="new-client">
+        <md-icon>person_add</md-icon>
+        <span>Nieuwe klant</span>
+      </button>
+      <button type="button" class="fab-menu-item" data-action="quick-log">
+        <md-icon>schedule</md-icon>
+        <span>Uren loggen</span>
+      </button>
+    </div>
+    <md-fab variant="primary" aria-label="Toevoegen" id="fab-main">
+      <md-icon slot="icon" id="fab-main-icon">add</md-icon>
+    </md-fab>
+  </div>
 
   <!-- Quick log modal -->
   <md-dialog id="quick-log-dialog">
     <div slot="headline">Uren loggen</div>
     <div slot="content" id="quick-log-content"></div>
     <div slot="actions">
-      <md-filled-button id="btn-quick-log-save">Opslaan (Ctrl+Enter)</md-filled-button>
       <md-text-button id="btn-quick-log-close">Sluiten</md-text-button>
+      <md-filled-button id="btn-quick-log-save">Opslaan (Ctrl+Enter)</md-filled-button>
     </div>
   </md-dialog>
 
@@ -935,8 +1004,8 @@
     <div slot="headline" id="project-dialog-title">Nieuw project</div>
     <div slot="content" id="project-dialog-content"></div>
     <div slot="actions">
-      <md-filled-button id="btn-project-save">Opslaan (Ctrl+Enter)</md-filled-button>
       <md-text-button id="btn-project-close">Annuleren</md-text-button>
+      <md-filled-button id="btn-project-save">Opslaan (Ctrl+Enter)</md-filled-button>
     </div>
   </md-dialog>
 
@@ -945,8 +1014,8 @@
     <div slot="headline" id="client-dialog-title">Nieuwe klant</div>
     <div slot="content" id="client-dialog-content"></div>
     <div slot="actions">
-      <md-filled-button id="btn-client-save">Opslaan (Ctrl+Enter)</md-filled-button>
       <md-text-button id="btn-client-close">Annuleren</md-text-button>
+      <md-filled-button id="btn-client-save">Opslaan (Ctrl+Enter)</md-filled-button>
     </div>
   </md-dialog>
 
@@ -955,8 +1024,8 @@
     <div slot="headline">Factuur aanmaken</div>
     <div slot="content" id="invoice-create-content"></div>
     <div slot="actions">
-      <md-filled-button id="btn-invoice-create">Aanmaken (Ctrl+Enter)</md-filled-button>
       <md-text-button id="btn-invoice-create-close">Annuleren</md-text-button>
+      <md-filled-button id="btn-invoice-create">Aanmaken (Ctrl+Enter)</md-filled-button>
     </div>
   </md-dialog>
 
@@ -965,8 +1034,8 @@
     <div slot="headline">Factuur</div>
     <div slot="content" id="invoice-pdf-content"></div>
     <div slot="actions">
-      <md-filled-button id="btn-pdf-print">Download PDF</md-filled-button>
       <md-text-button id="btn-pdf-close">Sluiten</md-text-button>
+      <md-filled-button id="btn-pdf-print">Download PDF</md-filled-button>
     </div>
   </md-dialog>
 
@@ -986,8 +1055,8 @@
       <p id="confirm-delete-message">Weet je zeker dat je dit wilt verwijderen?</p>
     </div>
     <div slot="actions">
-      <md-filled-button id="btn-confirm-delete-yes" class="danger">Ja, verwijderen</md-filled-button>
       <md-text-button id="btn-confirm-delete-no">Nee</md-text-button>
+      <md-filled-button id="btn-confirm-delete-yes" class="danger">Ja, verwijderen</md-filled-button>
     </div>
   </md-dialog>
 
@@ -1007,6 +1076,6 @@
       }
     })();
   </script>
-  <script type="module" src="firebase-loader.js?v=3"></script>
+  <script type="module" src="firebase-loader.js?v=4"></script>
 </body>
 </html>
