@@ -1920,14 +1920,31 @@ function renderSettings() {
   el.querySelector('#btn-add-label')?.addEventListener('click', () => {
     const list = el.querySelector('.label-edit-list');
     if (!list) return;
+    const newId = 'lbl-' + uid();
     const row = document.createElement('div');
     row.className = 'label-edit-row';
     row.style.cssText = 'display:flex;align-items:center;gap:8px;';
     row.innerHTML = `
-      <md-outlined-text-field data-label-id="lbl-${uid()}" value="" style="flex:1;" label="Label"></md-outlined-text-field>
-      <md-icon-button data-action="delete-label" data-label-id="" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>
+      <md-outlined-text-field data-label-id="${newId}" value="" style="flex:1;" label="Label"></md-outlined-text-field>
+      <md-icon-button data-action="delete-label" data-label-id="${newId}" aria-label="Verwijderen"><md-icon>delete</md-icon></md-icon-button>
     `;
     list.appendChild(row);
+    const tf = row.querySelector('md-outlined-text-field');
+    const saveLabelsFromDom = () => {
+      const labelFields = document.querySelectorAll('.label-edit-row md-outlined-text-field');
+      const newLabels = [];
+      labelFields.forEach((f) => {
+        const id = f.dataset?.labelId || f.getAttribute?.('data-label-id');
+        const name = ((f.value ?? f.querySelector?.('input')?.value ?? '') + '').trim();
+        if (name) newLabels.push({ id: id || 'lbl-' + uid(), name });
+      });
+      if (newLabels.length > 0) {
+        state.labels = newLabels;
+        saveState();
+        showSnackbar('Label opgeslagen');
+      }
+    };
+    tf?.addEventListener('blur', saveLabelsFromDom);
   });
   el.querySelector('#btn-add-member')?.addEventListener('click', () => {
     const list = el.querySelector('.member-edit-list');
@@ -1950,7 +1967,19 @@ function renderSettings() {
   el.querySelectorAll('[data-action="delete-label"]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const row = btn.closest('.label-edit-row');
-      if (row) row.remove();
+      if (row) {
+        row.remove();
+        const labelFields = document.querySelectorAll('.label-edit-row md-outlined-text-field');
+        const newLabels = [];
+        labelFields.forEach((f) => {
+          const id = f.dataset?.labelId || f.getAttribute?.('data-label-id');
+          const name = ((f.value ?? f.querySelector?.('input')?.value ?? '') + '').trim();
+          if (name) newLabels.push({ id: id || 'lbl-' + uid(), name });
+        });
+        state.labels = newLabels.length > 0 ? newLabels : DEFAULT_LABELS;
+        saveState();
+        showSnackbar('Label verwijderd');
+      }
     });
   });
   el.querySelector('#settings-logo-upload')?.addEventListener('click', () => document.getElementById('settings-logo-input')?.click());
@@ -2094,13 +2123,14 @@ function renderSettings() {
     const labelFields = document.querySelectorAll('.label-edit-row md-outlined-text-field');
     const newLabels = [];
     labelFields.forEach((tf) => {
-      const id = tf.dataset?.labelId;
-      const name = (tf.value || '').trim();
+      const id = tf.dataset?.labelId || tf.getAttribute?.('data-label-id');
+      const name = ((tf.value ?? tf.querySelector?.('input')?.value ?? '') + '').trim();
       if (name) newLabels.push({ id: id || 'lbl-' + uid(), name });
     });
     state.labels = newLabels.length > 0 ? newLabels : DEFAULT_LABELS;
 
     saveState();
+    renderSettings();
     renderDashboard();
     showSnackbar('Instellingen opgeslagen', {
       undo: () => {
