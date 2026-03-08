@@ -1156,7 +1156,7 @@ function renderUren() {
       </div>
     </div>
     ` : ''}
-    <div class="filter-row" style="justify-content:space-between;align-items:center;">
+    <div class="filter-row" style="justify-content:space-between;align-items:flex-start;width:100%;">
       <div class="filter-row">
         <button type="button" class="filter-chip-btn ${state.entryFilter === 'all' ? 'active' : ''}" data-filter="all">Alle</button>
         <button type="button" class="filter-chip-btn ${state.entryFilter === 'open' ? 'active' : ''}" data-filter="open">Open</button>
