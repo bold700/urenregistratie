@@ -1,5 +1,5 @@
 /**
- * Firebase – Auth + Firestore voor Urenregistratie
+ * Firebase – Auth + Firestore voor ecosysteem (uren, projecten, planning)
  */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';

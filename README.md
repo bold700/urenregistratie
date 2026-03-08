@@ -32,9 +32,22 @@ Ga daarna in je browser naar: **http://localhost:8765/**
 ## Bestanden
 
 - `index.html` – Pagina met tabs (Dashboard, Projecten, Uren, Facturen).
-- `app.js` – Logica en opslag (projecten, uren, facturen).
-- `theme.css` – Jouw Material-thema (groen palet).
+- `app.js` – Logica en UI (uren + facturatie). Importeert uit `shared/`.
+- `shared/core.js` – Gedeelde kern: constants, utils, storage, migratie.
+- `shared/theme.css` – Material-thema (groen palet), gedeeld door alle apps.
+- `shared/firebase-app.js` – Firebase Auth + Firestore, gedeeld door alle apps.
+- `firebase-config.js` – Jouw Firebase-config (niet in git; kopieer van `firebase-config.example.js`).
 - `README.md` – Deze uitleg.
+
+### Navigatiestructuur
+
+**Beheer** (overstijgend)
+- Klanten, Projecten, Instellingen
+
+**Werk** (registratie & taken)
+- Dashboard, Uren, Facturen, Taken
+
+Alles in één app. `/projecten/` verwijst door naar `/#taken`.
 
 ## Samenvatting
 

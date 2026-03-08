@@ -1,77 +1,58 @@
 /**
  * Urenregistratie – projectmanagement en facturatie
  * Vanilla JS + Material Web. Storage: localStorage / Firebase.
+ * Gebruikt shared/core voor constants, utils, storage.
  */
+import {
+  BREAKPOINT_MOBILE,
+  BREAKPOINT_SMALL,
+  DEFAULT_WEEK_CAPACITY,
+  DEFAULT_INVOICE_DUE_DAYS,
+  OLD_UNBILLED_WEEKS_THRESHOLD,
+  SNACKBAR_DURATION_MS,
+  MIN_SKELETON_MS,
+  MAX_LOGO_SIZE_BYTES,
+  STORAGE_KEYS,
+  DEFAULT_LABELS,
+  formatEur,
+  formatDate,
+  formatDateTime,
+  formatEntryDateTime,
+  today,
+  uid,
+  addDays,
+  isMobile,
+  typeLabel,
+  periodLabel,
+  retainerHoursAmount,
+  retainerAmountPerMonth,
+  retainerHoursPerWeek,
+  retainerHoursPerMonth,
+  getISOWeek,
+  storageLoad,
+  storageSave,
+  migrateLegacyData,
+  escapeHtml,
+  emptyState,
+  getEffectiveDarkMode,
+  applyDarkMode,
+  createInitialState,
+  ESTIMATE_OPTIONS,
+} from './shared/core.js';
 
-const STORAGE_KEYS = {
-  projects: 'bold700:projects',
-  entries: 'bold700:timeentries',
-  invoices: 'bold700:invoices',
-  settings: 'bold700:settings',
-  clients: 'bold700:clients',
-  labels: 'bold700:labels',
-  timer: 'bold700:timer',
-  // Legacy keys voor migratie
-  legacy: 'urenregistratie-data',
-  legacyCapacity: 'urenregistratie-capacity',
-};
-
-const DEFAULT_LABELS = [
-  { id: 'lbl-1', name: 'Design' },
-  { id: 'lbl-2', name: 'Call' },
-  { id: 'lbl-3', name: 'Research' },
-  { id: 'lbl-4', name: 'Development' },
-  { id: 'lbl-5', name: 'Overleg' },
-];
-
-const formatEur = (n) =>
-  new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(n || 0);
-
-const formatDate = (iso) =>
-  iso ? new Date(iso).toLocaleDateString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-
-const formatDateTime = (iso) =>
-  iso ? new Date(iso).toLocaleString('nl-NL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
-
-const formatEntryDateTime = (e) => (e?.createdAt ? formatDateTime(e.createdAt) : formatDate(e?.date));
-
-const today = () => new Date().toISOString().split('T')[0];
-const uid = () => Math.random().toString(36).slice(2, 9);
-const isMobile = () => window.matchMedia('(max-width: 960px)').matches;
-const addDays = (dateStr, days) => {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
-};
-const typeLabel = (t) => ({ hourly: 'Per uur', fixed: 'Vaste prijs', retainer: 'Retainer (vast bedrag)', retainer_hours: 'Retainer (uren per periode)' })[t] || t;
-const periodLabel = (p) => ({ week: 'p/week', '4weeks': 'p/4wk', month: 'p/maand', quarter: 'p/kwartaal' })[p] || 'p/maand';
-const retainerHoursAmount = (p) => (p.hoursPerPeriod || 0) * (p.rate || 0);
-const retainerAmountPerMonth = (p) => {
-  const amt = p.type === 'retainer' ? (p.rate || 0) : retainerHoursAmount(p);
-  if (!amt) return 0;
-  const mult = { week: 4.33, '4weeks': 1, month: 1, quarter: 1 / 3 }[p.period || 'month'] ?? 1;
-  return amt * mult;
-};
-const retainerHoursPerWeek = (p) => {
-  if (p.type !== 'retainer_hours' || !p.hoursPerPeriod) return 0;
-  const mult = { week: 1, '4weeks': 0.25, month: 1 / 4.33, quarter: 1 / 13 }[p.period || 'month'] ?? 1 / 4.33;
-  return (p.hoursPerPeriod || 0) * mult;
-};
-const retainerHoursPerMonth = (p) => {
-  if (p.type !== 'retainer_hours' || !p.hoursPerPeriod) return 0;
-  const mult = { week: 4.33, '4weeks': 1, month: 1, quarter: 1 / 3 }[p.period || 'month'] ?? 1;
-  return (p.hoursPerPeriod || 0) * mult;
-};
-
-/** ISO weeknummer (week 1 = week met eerste donderdag van het jaar) */
-function getISOWeek(d) {
-  const date = new Date(d.getTime());
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() + 4 - (date.getDay() || 7));
-  const yearStart = new Date(date.getFullYear(), 0, 1);
-  return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+// ─── App-specifieke helpers ────────────────────────────────────────────────
+function getLabelsFromSettingsDom() {
+  const labelFields = document.querySelectorAll('.label-edit-row md-outlined-text-field');
+  const newLabels = [];
+  labelFields.forEach((f) => {
+    const id = f.dataset?.labelId || f.getAttribute?.('data-label-id');
+    const name = ((f.value ?? f.querySelector?.('input')?.value ?? '') + '').trim();
+    if (name) newLabels.push({ id: id || 'lbl-' + uid(), name });
+  });
+  return newLabels;
 }
 
+// ─── Chart data & rendering ─────────────────────────────────────────────────
 /** Aggregeert uren en omzet per week (maandag–zondag) voor de laatste N weken */
 function getWeeklyHoursData(entries, numWeeks = 12, projects = []) {
   const weeks = [];
@@ -113,7 +94,26 @@ function getComputedChartColor(cssVar) {
   return val || '#4C662B';
 }
 
-function renderHoursChart(canvasId, entries, weekCapacity = 40, projects = []) {
+function getChartTheme() {
+  const isDark = document.documentElement.classList.contains('dark') || document.documentElement.getAttribute('data-color-scheme') === 'dark';
+  return {
+    isDark,
+    gridColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+    textColor: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)',
+    primary: getComputedChartColor('--md-sys-color-primary'),
+    error: getComputedChartColor('--md-sys-color-error'),
+    colors: [
+      getComputedChartColor('--md-sys-color-primary'),
+      getComputedChartColor('--md-sys-color-secondary'),
+      getComputedChartColor('--md-sys-color-tertiary'),
+      getComputedChartColor('--md-sys-color-primary-container'),
+      getComputedChartColor('--md-sys-color-secondary-container'),
+      getComputedChartColor('--md-sys-color-tertiary-container'),
+    ],
+  };
+}
+
+function renderHoursChart(canvasId, entries, weekCapacity = DEFAULT_WEEK_CAPACITY, projects = []) {
   const canvas = document.getElementById(canvasId);
   if (!canvas || typeof Chart === 'undefined') return;
   if (_hoursChartInstance) {
@@ -121,11 +121,7 @@ function renderHoursChart(canvasId, entries, weekCapacity = 40, projects = []) {
     _hoursChartInstance = null;
   }
   const data = getWeeklyHoursData(entries, 12, projects);
-  const isDark = document.documentElement.classList.contains('dark') || document.documentElement.getAttribute('data-color-scheme') === 'dark';
-  const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-  const textColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)';
-  const primaryColor = getComputedChartColor('--md-sys-color-primary');
-  const errorColor = getComputedChartColor('--md-sys-color-error');
+  const { gridColor, textColor, primary: primaryColor, error: errorColor } = getChartTheme();
 
   _hoursChartInstance = new Chart(canvas, {
     type: 'bar',
@@ -199,17 +195,7 @@ function renderHoursPerProjectChart(canvasId, entries, projects = [], activeOnly
   }
   const data = getHoursPerProjectData(entries, projects, activeOnly);
   if (data.length === 0) return;
-  const isDark = document.documentElement.classList.contains('dark') || document.documentElement.getAttribute('data-color-scheme') === 'dark';
-  const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-  const textColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)';
-  const colors = [
-    getComputedChartColor('--md-sys-color-primary'),
-    getComputedChartColor('--md-sys-color-secondary'),
-    getComputedChartColor('--md-sys-color-tertiary'),
-    getComputedChartColor('--md-sys-color-primary-container'),
-    getComputedChartColor('--md-sys-color-secondary-container'),
-    getComputedChartColor('--md-sys-color-tertiary-container'),
-  ];
+  const { gridColor, textColor, colors } = getChartTheme();
   const labelFn = (d) => (hideClientInLabel || !d.client ? d.name : `${d.name} · ${d.client}`);
   _hoursPerProjectChartInstance = new Chart(canvas, {
     type: 'bar',
@@ -250,7 +236,7 @@ function renderHoursPerProjectChart(canvasId, entries, projects = [], activeOnly
 }
 
 /** Uren die al X weken open staan (nog te factureren) */
-function getOldUnbilledEntries(entries, draftInvoiceIds, projects, weeks = 4) {
+function getOldUnbilledEntries(entries, draftInvoiceIds, projects, weeks = OLD_UNBILLED_WEEKS_THRESHOLD) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - weeks * 7);
   const cutoffStr = cutoff.toISOString().split('T')[0];
@@ -335,17 +321,7 @@ function renderHoursPerLabelChart(canvasId, entries, labels = []) {
   }
   const data = getHoursPerLabelData(entries, labels);
   if (data.length === 0) return;
-  const isDark = document.documentElement.classList.contains('dark') || document.documentElement.getAttribute('data-color-scheme') === 'dark';
-  const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-  const textColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)';
-  const colors = [
-    getComputedChartColor('--md-sys-color-primary'),
-    getComputedChartColor('--md-sys-color-secondary'),
-    getComputedChartColor('--md-sys-color-tertiary'),
-    getComputedChartColor('--md-sys-color-primary-container'),
-    getComputedChartColor('--md-sys-color-secondary-container'),
-    getComputedChartColor('--md-sys-color-tertiary-container'),
-  ];
+  const { gridColor, textColor, colors } = getChartTheme();
   _hoursPerLabelChartInstance = new Chart(canvas, {
     type: 'bar',
     data: {
@@ -384,158 +360,6 @@ function renderHoursPerLabelChart(canvasId, entries, labels = []) {
   });
 }
 
-function storageLoad(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : (key === STORAGE_KEYS.settings ? null : []);
-  } catch {
-    return key === STORAGE_KEYS.settings ? null : [];
-  }
-}
-
-function storageSave(key, data) {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch {}
-}
-
-function migrateLegacyData() {
-  const legacy = localStorage.getItem(STORAGE_KEYS.legacy);
-  if (!legacy) return;
-  try {
-    const d = JSON.parse(legacy);
-    const projects = (d.projects || []).map((p) => {
-      const type = p.billingType === 'vaste_prijs' ? 'fixed' : p.billingType === 'retainer' ? 'retainer' : p.billingType === 'retainer_hours' ? 'retainer_hours' : 'hourly';
-      const rate = type === 'hourly' ? (p.hourlyRate || 0) : (type === 'retainer' || type === 'retainer_hours') ? (p.retainerRate || p.hourlyRate || 0) : 0;
-      const budget = type === 'fixed' ? (p.fixedPrice || 0) : (p.hoursBudget || p.retainerHours) || 0;
-      const hoursPerPeriod = type === 'retainer_hours' ? (p.retainerHours || p.hoursPerPeriod || 0) : 0;
-      const period = p.retainerPeriod === 'week' ? 'week' : p.retainerPeriod === '4weken' ? '4weeks' : p.retainerPeriod === 'kwartaal' ? 'quarter' : 'month';
-      const status = p.status === 'afgerond' ? 'inactive' : 'active';
-      return {
-        id: p.id || uid(),
-        name: p.name || '',
-        client: p.client || '',
-        type,
-        rate: Number(rate) || 0,
-        budget: Number(budget) || 0,
-        period,
-        status,
-        notes: p.notes || '',
-        hoursPerPeriod: type === 'retainer_hours' ? Number(hoursPerPeriod) || 0 : undefined,
-        createdAt: p.createdAt || today(),
-      };
-    });
-    const entries = (d.timeEntries || []).map((e) => ({
-      id: e.id || uid(),
-      projectId: e.projectId,
-      date: e.date,
-      hours: Number(e.hours) || 0,
-      description: e.description || '',
-      invoiceId: e.invoiceId || null,
-      notBillable: e.notBillable ?? false,
-      createdAt: e.createdAt || new Date().toISOString(),
-    }));
-    const invoices = (d.invoices || []).map((i) => ({
-      id: i.id || uid(),
-      number: i.number || `INV-${uid().toUpperCase()}`,
-      client: (d.projects || []).find((p) => p.id === i.projectId)?.client || '?',
-      projectId: i.projectId,
-      projectIds: [i.projectId],
-      projectName: (d.projects || []).find((p) => p.id === i.projectId)?.name || '?',
-      timeEntryIds: i.timeEntryIds || [],
-      entryIds: i.timeEntryIds || [],
-      date: i.date || today(),
-      dueDate: i.dueDate || addDays(i.date || today(), 30),
-      notes: i.notes || '',
-      total: 0,
-      status: i.status === 'concept' ? 'draft' : i.status === 'verzonden' ? 'sent' : i.status === 'betaald' ? 'paid' : 'draft',
-      createdAt: i.createdAt || new Date().toISOString(),
-    }));
-    invoices.forEach((inv) => {
-      const invEntries = entries.filter((e) => inv.entryIds.includes(e.id));
-      const proj = projects.find((p) => p.id === inv.projectId);
-      inv.total = invEntries.reduce((s, e) => s + (e.hours || 0) * (proj?.rate || 0), 0);
-    });
-    const clients = [];
-    const seen = new Set();
-    projects.forEach((p) => {
-      const c = (p.client || '').trim();
-      if (c && !seen.has(c.toLowerCase())) {
-        seen.add(c.toLowerCase());
-        clients.push({
-          id: uid(),
-          name: c,
-          contactPerson: '',
-          address: '',
-          city: '',
-          email: '',
-          phone: '',
-          debiteurNr: '',
-          createdAt: today(),
-        });
-      }
-    });
-    const cap = (() => {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEYS.legacyCapacity);
-        if (!raw) return { weekCapacity: 40, paymentDays: 14 };
-        const c = JSON.parse(raw);
-        return { weekCapacity: c.maxHoursPerWeek || 40, paymentDays: 14 };
-      } catch {
-        return { weekCapacity: 40, paymentDays: 14 };
-      }
-    })();
-    const settings = {
-      weekCapacity: cap.weekCapacity,
-      company: {
-        name: 'BOLD700 B.V.',
-        address: 'Zilveren Florijnlaan 7',
-        city: '3541HA Utrecht',
-        iban: 'NL04 ABNA 0140 5874 38',
-        kvk: '95956840',
-        phone: '0614802802',
-        email: 'support@bold700.com',
-        website: 'bold700.com',
-        btw: '',
-        paymentDays: cap.paymentDays,
-      },
-    };
-    storageSave(STORAGE_KEYS.projects, projects);
-    storageSave(STORAGE_KEYS.entries, entries);
-    storageSave(STORAGE_KEYS.invoices, invoices);
-    storageSave(STORAGE_KEYS.clients, clients);
-    storageSave(STORAGE_KEYS.settings, settings);
-    localStorage.removeItem(STORAGE_KEYS.legacy);
-  } catch (e) {
-    console.warn('Migratie mislukt:', e);
-  }
-}
-
-function escapeHtml(s) {
-  if (s == null) return '';
-  const div = document.createElement('div');
-  div.textContent = s;
-  return div.innerHTML;
-}
-
-/** Lege staat met titel, uitleg en CTA */
-function emptyState(opts) {
-  const { icon = 'folder_open', title, subtitle, cta } = opts;
-  const ctaHtml = !cta ? '' : cta.nav
-    ? `<a href="#" data-nav="${cta.nav}" class="empty-state-cta-link"><md-icon style="font-size:18px;">arrow_forward</md-icon>${escapeHtml(cta.text)}</a>`
-    : `<md-filled-button id="${cta.action}" class="empty-state-cta-btn"><md-icon slot="icon">add</md-icon>${escapeHtml(cta.text)}</md-filled-button>`;
-  return `
-    <div class="card">
-      <div class="empty-state">
-        <div class="empty-state-icon"><md-icon style="font-size:48px;width:48px;height:48px;">${icon}</md-icon></div>
-        <div class="empty-state-title">${escapeHtml(title)}</div>
-        ${subtitle ? `<div class="empty-state-sub">${escapeHtml(subtitle)}</div>` : ''}
-        ${ctaHtml ? `<div class="empty-state-cta-wrap">${ctaHtml}</div>` : ''}
-      </div>
-    </div>
-  `;
-}
-
 let snackbarTimeout = null;
 let pendingUndo = null;
 
@@ -554,7 +378,7 @@ function showSnackbar(message, options = {}) {
   el.classList.add('visible');
   snackbarTimeout = setTimeout(() => {
     hideSnackbar();
-  }, 4000);
+  }, SNACKBAR_DURATION_MS);
 }
 
 function hideSnackbar() {
@@ -573,54 +397,8 @@ function onSnackbarUndo() {
   }
 }
 
-function getSystemPrefersDark() {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches;
-}
-
-function getEffectiveDarkMode() {
-  if (typeof state.settings.darkMode === 'boolean') return state.settings.darkMode;
-  return getSystemPrefersDark();
-}
-
-function applyDarkMode(enabled) {
-  const root = document.documentElement;
-  if (enabled) {
-    root.setAttribute('data-color-scheme', 'dark');
-    root.classList.add('dark');
-  } else {
-    root.removeAttribute('data-color-scheme');
-    root.classList.remove('dark');
-  }
-}
-
 // ─── State ─────────────────────────────────────────────────────────────────
-let state = {
-  tab: 'dash',
-  menuOpen: false,
-  projects: [],
-  entries: [],
-  invoices: [],
-  clients: [],
-  labels: [...DEFAULT_LABELS],
-  settings: {
-    weekCapacity: 40,
-    company: {},
-    members: [], // [{ id, name }] – medewerkers voor capaciteitsbreakdown
-  },
-  statusFilter: 'active',
-  entryFilter: 'all',
-  quickLogForm: { projectId: '', date: today(), hours: '', description: '', notBillable: false, personId: '' },
-  timers: [],
-  timerTickInterval: null,
-  projectForm: {},
-  clientForm: {},
-  invoiceForm: { client: '', date: today(), dueDate: addDays(today(), 30), notes: '' },
-  selectedProjects: [],
-  selectedEntries: [],
-  pdfInvoice: null,
-  pendingDelete: null,
-  viewingClientId: null,
-};
+let state = createInitialState();
 
 function loadState() {
   const initial = window.__initialData;
@@ -630,6 +408,7 @@ function loadState() {
     state.entries = initial.entries || [];
     state.invoices = initial.invoices || [];
     state.clients = initial.clients || [];
+    state.todos = initial.todos || [];
     state.labels = initial.labels && initial.labels.length > 0 ? initial.labels : DEFAULT_LABELS;
     const t = initial.timers;
     state.timers = Array.isArray(t) ? t.filter((x) => x?.startTime && x?.projectId) : [];
@@ -647,6 +426,7 @@ function loadState() {
   state.entries = storageLoad(STORAGE_KEYS.entries) || [];
   state.invoices = storageLoad(STORAGE_KEYS.invoices) || [];
   state.clients = storageLoad(STORAGE_KEYS.clients) || [];
+  state.todos = storageLoad(STORAGE_KEYS.todos) || [];
   const storedLabels = storageLoad(STORAGE_KEYS.labels);
   state.labels = Array.isArray(storedLabels) && storedLabels.length > 0 ? storedLabels : DEFAULT_LABELS;
   const t = storageLoad(STORAGE_KEYS.timer);
@@ -685,6 +465,7 @@ function saveState() {
     storageSave(STORAGE_KEYS.invoices, state.invoices);
     storageSave(STORAGE_KEYS.clients, state.clients);
     storageSave(STORAGE_KEYS.labels, state.labels);
+    storageSave(STORAGE_KEYS.todos, state.todos);
     storageSave(STORAGE_KEYS.settings, state.settings);
     storageSave(STORAGE_KEYS.timer, state.timers);
   }
@@ -696,6 +477,7 @@ function saveState() {
       invoices: state.invoices,
       clients: state.clients,
       labels: state.labels,
+      todos: state.todos,
       settings: state.settings,
       timers: state.timers,
     });
@@ -706,6 +488,7 @@ function saveState() {
   }
 }
 
+// ─── Timer ──────────────────────────────────────────────────────────────────
 function formatTimerElapsed(ms) {
   const s = Math.floor(ms / 1000) % 60;
   const m = Math.floor(ms / 60000) % 60;
@@ -859,7 +642,7 @@ function renderDashboard() {
   const weekEntries = entries.filter((e) => e.date >= weekStart && e.date <= weekEnd);
   const hoursThisWeek = weekEntries.reduce((s, e) => s + (e.hours || 0), 0);
   const totalUsedThisWeek = hoursThisWeek + retainerHoursThisWeek;
-  const weekCapacity = settings.weekCapacity || 40;
+  const weekCapacity = settings.weekCapacity || DEFAULT_WEEK_CAPACITY;
   const pct = Math.min(100, (totalUsedThisWeek / weekCapacity) * 100);
   const hoursLeft = Math.max(0, weekCapacity - totalUsedThisWeek);
   const overbooked = totalUsedThisWeek > weekCapacity;
@@ -886,7 +669,7 @@ function renderDashboard() {
     { label: 'Ontvangen', value: formatEur(paidValue), sub: 'alle tijden', color: 'var(--md-sys-color-primary)' },
     { label: 'Uren deze maand', value: `${totalMonthHours.toFixed(1)}u`, sub: monthSub, color: 'var(--md-sys-color-secondary)' },
   ];
-  const oldUnbilled = getOldUnbilledEntries(entries, draftInvoiceIds, projects, 4);
+  const oldUnbilled = getOldUnbilledEntries(entries, draftInvoiceIds, projects, OLD_UNBILLED_WEEKS_THRESHOLD);
   const oldUnbilledHours = oldUnbilled.reduce((s, e) => s + (e.hours || 0), 0);
   const oldUnbilledValue = oldUnbilled.reduce((s, e) => s + (e.value || 0), 0);
   const retainerTotalPerMonth = vasteRetainers.reduce((s, p) => s + retainerAmountPerMonth(p), 0);
@@ -1119,10 +902,10 @@ function renderDashboard() {
                 <div class="dashboard-project-name">${escapeHtml(p?.name || '?')}</div>
                 <div class="dashboard-project-sub">${sub}</div>
               </div>
-              <div class="dashboard-project-right" style="display:flex;align-items:center;gap:10px;">
+              <div class="dashboard-project-right dashboard-entry-right">
                 ${e.invoiceId && !draftInvoiceIds.has(e.invoiceId) ? '<span class="badge" style="background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container);">gefact.</span>' : ''}
-                <span class="dashboard-project-hours">${e.hours}u</span>
-                ${showDateRight ? `<span style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">${formatDate(e.date)}</span>` : ''}
+                <div class="dashboard-project-hours">${e.hours}u</div>
+                ${showDateRight ? `<div class="dashboard-project-week" style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">${formatDate(e.date)}</div>` : ''}
               </div>
             </div>
           `;
@@ -1134,7 +917,7 @@ function renderDashboard() {
   el.querySelectorAll('[data-nav]').forEach((a) => {
     a.addEventListener('click', (e) => { e.preventDefault(); switchTab(a.dataset.nav); });
   });
-  const weekCap = settings?.weekCapacity || 40;
+  const weekCap = settings?.weekCapacity || DEFAULT_WEEK_CAPACITY;
   renderHoursChart('chart-dash-hours', entries, weekCap, projects);
   renderHoursPerProjectChart('chart-dash-hours-per-project', entries, projects);
   renderHoursPerLabelChart('chart-dash-hours-per-label', entries, state.labels);
@@ -1252,7 +1035,7 @@ function renderUren() {
     return (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || '');
   });
   const filtered = state.entryFilter === 'open' ? sorted.filter((e) => !e.invoiceId && !e.notBillable) : sorted;
-  const isMobileView = window.innerWidth < 600;
+  const isMobileView = window.innerWidth < BREAKPOINT_SMALL;
   const activeProjects = projects.filter((p) => p.status === 'active');
   const runningTimers = state.timers || [];
   const busyProjectIds = new Set(runningTimers.map((t) => t.projectId));
@@ -1469,7 +1252,6 @@ function renderUren() {
       btn.classList.add('selected');
     });
   });
-  el.querySelector('#timer-project-select')?.addEventListener('change', () => {});
   el.querySelectorAll('[data-nav]').forEach((a) => {
     a.addEventListener('click', (e) => { e.preventDefault(); switchTab(a.dataset.nav); });
   });
@@ -1594,7 +1376,7 @@ function renderClientDashboard(clientId) {
     ` : '';
     })()}
     ${(() => {
-      const oldUnbilled = getOldUnbilledEntries(clientEntries, draftInvoiceIds, clientProjects, 4);
+      const oldUnbilled = getOldUnbilledEntries(clientEntries, draftInvoiceIds, clientProjects, OLD_UNBILLED_WEEKS_THRESHOLD);
       return oldUnbilled.length > 0 ? `
     <div class="dashboard-section">
       <div class="card" style="padding:16px;border-left:4px solid var(--md-sys-color-error);background:var(--md-sys-color-error-container);">
@@ -1673,11 +1455,11 @@ function renderClientDashboard(clientId) {
               <div class="dashboard-project-name">${escapeHtml(p?.name || '?')}</div>
               <div class="dashboard-project-sub">${sub}</div>
             </div>
-            <div class="dashboard-project-right" style="display:flex;align-items:center;gap:10px;">
+            <div class="dashboard-project-right dashboard-entry-right">
               ${e.notBillable ? '<span class="badge" style="background:var(--md-sys-color-surface-container-high);">intern</span>' : ''}
               ${e.invoiceId && !draftInvoiceIds.has(e.invoiceId) ? '<span class="badge" style="background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container);">gefact.</span>' : ''}
-              <span class="dashboard-project-hours">${e.hours}u</span>
-              <span style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">${formatDate(e.date)}</span>
+              <div class="dashboard-project-hours">${e.hours}u</div>
+              <div class="dashboard-project-week" style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">${formatDate(e.date)}</div>
             </div>
           </div>
         `;
@@ -1712,7 +1494,7 @@ function renderClientDashboard(clientId) {
   el.querySelectorAll('[data-nav]').forEach((a) => {
     a.addEventListener('click', (e) => { e.preventDefault(); switchTab(a.dataset.nav); });
   });
-  const weekCap = state.settings?.weekCapacity || 40;
+  const weekCap = state.settings?.weekCapacity || DEFAULT_WEEK_CAPACITY;
   if (_hoursPerProjectChartInstance) {
     _hoursPerProjectChartInstance.destroy();
     _hoursPerProjectChartInstance = null;
@@ -1801,7 +1583,7 @@ function renderSettings() {
   const el = document.getElementById('panel-settings');
   if (!el) return;
   const co = state.settings.company || {};
-  const paymentDays = co.paymentDays ?? 14;
+  const paymentDays = co.paymentDays ?? DEFAULT_PAYMENT_DAYS;
   el.innerHTML = `
     <div class="section-title">Instellingen</div>
     <div class="card" style="margin-bottom:20px;">
@@ -1891,13 +1673,13 @@ function renderSettings() {
     <div class="card" style="margin-bottom:20px;">
       <div class="card-label" style="margin-bottom:14px;">Capaciteitsplanning</div>
       <div class="form-field">
-        <md-outlined-text-field id="settings-week-capacity" label="Weekcapaciteit (uren)" type="number" inputmode="numeric" value="${state.settings.weekCapacity || 40}"></md-outlined-text-field>
+        <md-outlined-text-field id="settings-week-capacity" label="Weekcapaciteit (uren)" type="number" inputmode="numeric" value="${state.settings.weekCapacity || DEFAULT_WEEK_CAPACITY}"></md-outlined-text-field>
       </div>
     </div>
     <div class="card" style="margin-bottom:20px;">
       <div class="form-field" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
         <span class="card-label" style="margin-bottom:0;">Donkere modus</span>
-        <md-switch id="dark-mode-switch" aria-label="Donkere modus" ${getEffectiveDarkMode() ? 'selected' : ''}></md-switch>
+        <md-switch id="dark-mode-switch" aria-label="Donkere modus" ${getEffectiveDarkMode(state.settings) ? 'selected' : ''}></md-switch>
       </div>
     </div>
     ${(window.__firebaseUser || (window.firebaseConfig?.apiKey && window.firebaseConfig.apiKey !== 'VUL_JE_API_KEY_IN')) ? `
@@ -1931,13 +1713,7 @@ function renderSettings() {
     list.appendChild(row);
     const tf = row.querySelector('md-outlined-text-field');
     const saveLabelsFromDom = () => {
-      const labelFields = document.querySelectorAll('.label-edit-row md-outlined-text-field');
-      const newLabels = [];
-      labelFields.forEach((f) => {
-        const id = f.dataset?.labelId || f.getAttribute?.('data-label-id');
-        const name = ((f.value ?? f.querySelector?.('input')?.value ?? '') + '').trim();
-        if (name) newLabels.push({ id: id || 'lbl-' + uid(), name });
-      });
+      const newLabels = getLabelsFromSettingsDom();
       if (newLabels.length > 0) {
         state.labels = newLabels;
         saveState();
@@ -1969,13 +1745,7 @@ function renderSettings() {
       const row = btn.closest('.label-edit-row');
       if (row) {
         row.remove();
-        const labelFields = document.querySelectorAll('.label-edit-row md-outlined-text-field');
-        const newLabels = [];
-        labelFields.forEach((f) => {
-          const id = f.dataset?.labelId || f.getAttribute?.('data-label-id');
-          const name = ((f.value ?? f.querySelector?.('input')?.value ?? '') + '').trim();
-          if (name) newLabels.push({ id: id || 'lbl-' + uid(), name });
-        });
+        const newLabels = getLabelsFromSettingsDom();
         state.labels = newLabels.length > 0 ? newLabels : DEFAULT_LABELS;
         saveState();
         showSnackbar('Label verwijderd');
@@ -1992,7 +1762,7 @@ function renderSettings() {
   el.querySelector('#settings-logo-input')?.addEventListener('change', (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 500 * 1024) {
+    if (file.size > MAX_LOGO_SIZE_BYTES) {
       showSnackbar('Logo te groot. Kies een afbeelding onder 500 KB.');
       e.target.value = '';
       return;
@@ -2018,7 +1788,7 @@ function renderSettings() {
   });
   const darkSwitch = el.querySelector('#dark-mode-switch');
   if (darkSwitch) {
-    darkSwitch.selected = getEffectiveDarkMode();
+    darkSwitch.selected = getEffectiveDarkMode(state.settings);
     darkSwitch.addEventListener('change', () => {
       state.settings.darkMode = darkSwitch.selected;
       storageSave(STORAGE_KEYS.settings, state.settings);
@@ -2037,6 +1807,7 @@ function renderSettings() {
       state.entries = data?.entries || [];
       state.invoices = data?.invoices || [];
       state.clients = data?.clients || [];
+      state.todos = data?.todos || [];
       state.labels = data?.labels && data.labels.length > 0 ? data.labels : DEFAULT_LABELS;
       const t = data?.timers;
       state.timers = Array.isArray(t) ? t.filter((x) => x?.startTime && x?.projectId) : [];
@@ -2063,7 +1834,7 @@ function renderSettings() {
     document.getElementById('app-shell').style.display = 'none';
     const errEl = document.getElementById('login-error');
     try {
-      const fb = window.__firebase || (await import('./firebase-app.js'));
+      const fb = window.__firebase || (await import('./shared/firebase-app.js'));
       const cfg = window.firebaseConfig;
       if (!fb || !cfg?.apiKey) throw new Error('Firebase niet geconfigureerd');
       if (!fb.getFirebaseAuth?.()) fb.initFirebase(cfg);
@@ -2109,7 +1880,7 @@ function renderSettings() {
     company.website = document.getElementById('settings-company-website')?.value ?? company.website;
     company.btw = document.getElementById('settings-company-btw')?.value ?? company.btw;
     state.settings.company = company;
-    state.settings.weekCapacity = Number(document.getElementById('settings-week-capacity')?.value) || 40;
+    state.settings.weekCapacity = Number(document.getElementById('settings-week-capacity')?.value) || DEFAULT_WEEK_CAPACITY;
 
     const memberFields = document.querySelectorAll('.member-edit-row md-outlined-text-field');
     const newMembers = [];
@@ -2120,13 +1891,7 @@ function renderSettings() {
     });
     state.settings.members = newMembers;
 
-    const labelFields = document.querySelectorAll('.label-edit-row md-outlined-text-field');
-    const newLabels = [];
-    labelFields.forEach((tf) => {
-      const id = tf.dataset?.labelId || tf.getAttribute?.('data-label-id');
-      const name = ((tf.value ?? tf.querySelector?.('input')?.value ?? '') + '').trim();
-      if (name) newLabels.push({ id: id || 'lbl-' + uid(), name });
-    });
+    const newLabels = getLabelsFromSettingsDom();
     state.labels = newLabels.length > 0 ? newLabels : DEFAULT_LABELS;
 
     saveState();
@@ -2142,6 +1907,382 @@ function renderSettings() {
       },
     });
   });
+}
+
+// ─── Taken ────────────────────────────────────────────────────────────────
+const TAKEN_OLD_DAYS = 7;
+const ORDER_QUICK_BASE = 0;
+const ORDER_REST_BASE = 1000;
+
+function getTodoMeta(t) {
+  const created = t.createdAt ? new Date(t.createdAt).getTime() : 0;
+  const now = Date.now();
+  const daysOpen = created ? Math.floor((now - created) / 86400000) : 0;
+  const isQuick = t.estimate && parseInt(t.estimate, 10) <= 15;
+  const isOld = !t.dueDate && daysOpen >= TAKEN_OLD_DAYS;
+  const project = state.projects.find((p) => p.id === t.projectId);
+  return { project, isQuick, isOld, daysOpen };
+}
+
+function sortTodosForMijnWerk(list, isQuick = false) {
+  const base = isQuick ? ORDER_QUICK_BASE : ORDER_REST_BASE;
+  return [...list].sort((a, b) => {
+    const oa = a.order ?? base + 999;
+    const ob = b.order ?? base + 999;
+    if (oa !== ob) return oa - ob;
+    const ma = getTodoMeta(a);
+    const mb = getTodoMeta(b);
+    if (ma.isQuick && !mb.isQuick) return -1;
+    if (!ma.isQuick && mb.isQuick) return 1;
+    if (a.dueDate && !b.dueDate) return -1;
+    if (!a.dueDate && b.dueDate) return 1;
+    if (a.dueDate && b.dueDate) return (a.dueDate || '').localeCompare(b.dueDate || '');
+    if (ma.isOld && !mb.isOld) return -1;
+    if (!ma.isOld && mb.isOld) return 1;
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  });
+}
+
+function renderTaken() {
+  const el = document.getElementById('panel-taken');
+  if (!el) return;
+  const { projects, todos, projectFilter, todoFilter, takenViewMode } = state;
+  const showOpen = todoFilter !== 'done';
+  const showDone = todoFilter !== 'open';
+  const byProject = (list) => (projectFilter === 'all' ? list : list.filter((t) => t.projectId === projectFilter));
+  const openTodos = byProject(todos.filter((t) => !t.done));
+  const doneTodos = byProject(todos.filter((t) => t.done));
+
+  const projectOptions = [
+    { id: 'all', name: 'Alle projecten' },
+    ...projects.map((p) => ({ id: p.id, name: p.name, client: p.client })),
+  ];
+
+  const getTodosForProject = (pid) => {
+    let list = todos.filter((t) => t.projectId === pid);
+    if (todoFilter === 'open') list = list.filter((t) => !t.done);
+    else if (todoFilter === 'done') list = list.filter((t) => t.done);
+    return list.sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || (a.createdAt || '').localeCompare(b.createdAt || ''));
+  };
+
+  const sortedProjects = [...(projectFilter === 'all' ? projects : projects.filter((p) => p.id === projectFilter))].sort((a, b) => {
+    const aHas = openTodos.some((t) => t.projectId === a.id);
+    const bHas = openTodos.some((t) => t.projectId === b.id);
+    if (aHas && !bHas) return -1;
+    if (!aHas && bHas) return 1;
+    return 0;
+  });
+
+  const renderTodoRow = (t, showProject = false, draggable = false) => {
+    const meta = getTodoMeta(t);
+    const badges = [];
+    if (meta.isQuick) badges.push('<span class="badge" style="background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container);">Snel</span>');
+    if (meta.isOld) badges.push('<span class="badge" style="background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container);">Lang open</span>');
+    const dragHandle = draggable ? `<md-icon-button class="todo-drag-handle" data-action="drag-handle" aria-label="Versleep om te sorteren" style="cursor:grab;"><md-icon>drag_indicator</md-icon></md-icon-button>` : '';
+    const metaHtml = showProject && meta.project ? `
+      <span class="todo-row-meta">${escapeHtml(meta.project.client || '—')} · ${escapeHtml(meta.project.name)}</span>
+    ` : '';
+    return `
+      <li class="list-item todo-row" data-id="${t.id}" ${draggable ? 'draggable="true"' : ''} style="margin-bottom:8px;padding:10px 12px;border-radius:8px;background:var(--md-sys-color-surface-container-high);">
+        <div class="todo-row-inner">
+          <div class="todo-row-left">
+            ${dragHandle}
+            <md-checkbox data-action="toggle-todo" data-id="${t.id}" ${t.done ? 'checked' : ''} aria-label="Afgerond"></md-checkbox>
+            <div class="todo-row-content" style="flex:1;min-width:0;">
+              <div class="todo-row-title" style="${t.done ? 'text-decoration:line-through;opacity:0.7;' : ''}">${escapeHtml(t.title)}</div>
+              ${badges.length > 0 || t.dueDate ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">${badges.join('')}${t.dueDate ? `<span style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">${formatDate(t.dueDate)}</span>` : ''}</div>` : ''}
+            </div>
+          </div>
+          <div class="todo-row-right" style="flex-shrink:0;">
+            ${metaHtml}
+            <div class="todo-menu-wrap" style="position:relative;">
+              <md-icon-button id="todo-menu-${t.id}" data-action="todo-menu" data-id="${t.id}" data-project-id="${t.projectId}" aria-label="Meer opties"><md-icon>more_vert</md-icon></md-icon-button>
+              <md-menu class="todo-row-menu" anchor="todo-menu-${t.id}">
+                <md-menu-item data-action="edit-todo" data-id="${t.id}" data-project-id="${t.projectId}">
+                  <md-icon slot="start">edit</md-icon>
+                  <div slot="headline">Bewerken</div>
+                </md-menu-item>
+                <md-menu-item data-action="delete-todo" data-id="${t.id}">
+                  <md-icon slot="start">delete</md-icon>
+                  <div slot="headline">Verwijderen</div>
+                </md-menu-item>
+              </md-menu>
+            </div>
+          </div>
+        </div>
+      </li>
+    `;
+  };
+
+  const quickTodos = sortTodosForMijnWerk(openTodos.filter((t) => getTodoMeta(t).isQuick), true);
+  const sortedRest = sortTodosForMijnWerk(openTodos.filter((t) => !getTodoMeta(t).isQuick), false);
+
+  const todoFilterOptions = [['open', 'Open'], ['done', 'Afgerond'], ['all', 'Alles']];
+  el.innerHTML = `
+    <div class="filter-row taken-filter-row">
+      <div class="taken-filter-view-row">
+        <div class="view-toggle" role="group" aria-label="Weergave">
+          ${[['mijn-werk', 'Mijn werk'], ['per-project', 'Per project']].map(([val, label]) => `
+            <button type="button" class="view-toggle-btn ${takenViewMode === val ? 'active' : ''}" data-taken-view="${val}">${label}</button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="taken-filter-options-row">
+        <div class="filter-row taken-filter-btns">
+          ${todoFilterOptions.map(([val, label]) => `
+            <button type="button" class="filter-chip-btn ${todoFilter === val ? 'active' : ''}" data-todo-filter="${val}">${label}</button>
+          `).join('')}
+        </div>
+        <select id="taken-todo-filter-native" class="native-select taken-todo-filter-native" aria-label="Status filter">
+          ${todoFilterOptions.map(([val, label]) => `<option value="${escapeHtml(val)}" ${todoFilter === val ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+        </select>
+        <div class="taken-project-filter-wrap">
+          <md-outlined-select id="taken-project-filter-md" class="taken-project-filter taken-project-filter-md" label="Project" value="${escapeHtml(projectFilter)}" menu-positioning="popover" style="min-width:180px;width:100%;">
+            ${projectOptions.map((o) => `<md-select-option value="${escapeHtml(o.id)}"><div slot="headline">${escapeHtml(o.name)}</div><div slot="supporting-text">${escapeHtml(o.client || '')}</div></md-select-option>`).join('')}
+          </md-outlined-select>
+          <select id="taken-project-filter-native" class="native-select taken-project-filter taken-project-filter-native" style="flex:1;min-width:0;">
+            ${projectOptions.map((o) => `<option value="${escapeHtml(o.id)}" ${projectFilter === o.id ? 'selected' : ''}>${escapeHtml(o.name)}${o.client ? ' · ' + escapeHtml(o.client) : ''}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    ${projects.length === 0 ? emptyState({
+      icon: 'folder_open',
+      title: 'Nog geen projecten',
+      subtitle: 'Voeg eerst een klant en project toe in Beheer.',
+      cta: { nav: 'clients', text: 'Ga naar Klanten' }
+    }) : takenViewMode === 'mijn-werk' ? `
+    <div class="card-list">
+      ${showOpen && openTodos.length === 0 ? `
+        <div class="card">
+          <div class="empty-state" style="padding:32px 24px;">
+            <div class="empty-state-title">${showDone && doneTodos.length === 0 ? 'Geen taken' : 'Geen open taken'}</div>
+            <div class="empty-state-sub">Voeg een taak toe via de + knop of wissel naar Per project.</div>
+          </div>
+        </div>
+      ` : ''}
+      ${showOpen && openTodos.length > 0 ? `
+        ${quickTodos.length > 0 ? `
+          <div class="card">
+            <div class="section-title">Snel op te pakken</div>
+            <ul class="todo-sortable-list taken-todo-list" data-section="quick" style="list-style:none;padding:0;margin:0;">${quickTodos.map((t) => renderTodoRow(t, true, true)).join('')}</ul>
+          </div>
+        ` : ''}
+        ${sortedRest.length > 0 ? `
+          <div class="card">
+            <div class="section-title">${quickTodos.length > 0 ? 'Overige taken' : 'Mijn werk'}</div>
+            <ul class="todo-sortable-list taken-todo-list" data-section="rest" style="list-style:none;padding:0;margin:0;">${sortedRest.map((t) => renderTodoRow(t, true, true)).join('')}</ul>
+          </div>
+        ` : ''}
+      ` : ''}
+      ${showDone && doneTodos.length > 0 ? `
+        <div class="card">
+          <div class="section-title">Afgerond</div>
+          <ul class="taken-todo-list" style="list-style:none;padding:0;margin:0;">${doneTodos.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||'')).map((t) => renderTodoRow(t, true, false)).join('')}</ul>
+        </div>
+      ` : ''}
+    </div>
+    ` : `
+    <div class="card-list">
+      ${sortedProjects.map((p) => {
+        const projectTodos = getTodosForProject(p.id);
+        return `
+          <div class="card" data-project-id="${p.id}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+              <div>
+                <span style="font-weight:700;font-size:15px;">${escapeHtml(p.name)}</span>
+                ${p.client ? `<span style="font-size:12px;color:var(--md-sys-color-on-surface-variant);margin-left:8px;">${escapeHtml(p.client)}</span>` : ''}
+              </div>
+              <md-icon-button data-action="add-todo" data-project-id="${p.id}" aria-label="Taak toevoegen"><md-icon>add</md-icon></md-icon-button>
+            </div>
+            ${projectTodos.length === 0 ? `
+              <p style="font-size:13px;color:var(--md-sys-color-on-surface-variant);margin:0;">Geen taken</p>
+              <md-text-button data-action="add-todo" data-project-id="${p.id}" style="align-self:flex-start;margin-top:8px;">+ Taak toevoegen</md-text-button>
+            ` : `<ul class="taken-todo-list" style="list-style:none;padding:0;margin:0;">${projectTodos.map((t) => renderTodoRow(t, false)).join('')}</ul>`}
+          </div>
+        `;
+      }).join('')}
+    </div>
+    `}
+  `;
+
+  el.querySelectorAll('[data-taken-view]').forEach((b) => {
+    b.addEventListener('click', () => {
+      state.takenViewMode = b.dataset.takenView;
+      renderTaken();
+    });
+  });
+  const onProjectFilterChange = (value) => {
+    state.projectFilter = value;
+    renderTaken();
+  };
+  el.querySelector('#taken-project-filter-md')?.addEventListener('change', (e) => onProjectFilterChange(e.target.value));
+  el.querySelector('#taken-project-filter-native')?.addEventListener('change', (e) => onProjectFilterChange(e.target.value));
+  el.querySelectorAll('[data-todo-filter]').forEach((b) => {
+    b.addEventListener('click', () => {
+      state.todoFilter = b.dataset.todoFilter;
+      renderTaken();
+    });
+  });
+  el.querySelector('#taken-todo-filter-native')?.addEventListener('change', (e) => {
+    state.todoFilter = e.target.value;
+    renderTaken();
+  });
+  el.querySelectorAll('[data-action="add-todo"]').forEach((b) => {
+    b.addEventListener('click', () => openTodoDialog(b.dataset.projectId));
+  });
+  el.querySelectorAll('[data-action="toggle-todo"]').forEach((cb) => {
+    cb.addEventListener('change', () => toggleTodo(cb.dataset.id));
+  });
+  el.querySelectorAll('[data-action="todo-menu"]').forEach((btn) => {
+    const menu = btn.parentElement?.querySelector('.todo-row-menu');
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (menu) menu.open = true;
+    });
+  });
+  el.querySelectorAll('[data-action="edit-todo"]').forEach((b) => {
+    b.addEventListener('click', () => {
+      openTodoDialog(b.dataset.projectId, b.dataset.id);
+    });
+  });
+  el.querySelectorAll('[data-action="delete-todo"]').forEach((b) => {
+    b.addEventListener('click', () => openConfirmDeleteDialog('todo', b.dataset.id));
+  });
+  el.querySelectorAll('.todo-sortable-list').forEach((ul) => {
+    const section = ul.dataset.section;
+    const base = section === 'quick' ? ORDER_QUICK_BASE : ORDER_REST_BASE;
+    let draggedId = null;
+    ul.addEventListener('dragstart', (e) => {
+      const row = e.target.closest('.todo-row');
+      if (!row) return;
+      draggedId = row.dataset.id;
+      e.dataTransfer.setData('text/plain', draggedId);
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('todo-dragging');
+    });
+    ul.addEventListener('dragend', (e) => {
+      e.target.closest('.todo-row')?.classList.remove('todo-dragging');
+      draggedId = null;
+    });
+    ul.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      ul.querySelectorAll('.todo-row').forEach((r) => r.classList.remove('todo-drag-over'));
+      const row = e.target.closest('.todo-row');
+      if (row && row.dataset.id !== draggedId) row.classList.add('todo-drag-over');
+    });
+    ul.addEventListener('dragleave', (e) => {
+      if (!e.target.closest('.todo-row')) return;
+      e.target.closest('.todo-row')?.classList.remove('todo-drag-over');
+    });
+    ul.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const targetRow = e.target.closest('.todo-row');
+      if (!targetRow || !draggedId || targetRow.dataset.id === draggedId) return;
+      ul.querySelectorAll('.todo-row').forEach((r) => r.classList.remove('todo-drag-over'));
+      const items = [...ul.querySelectorAll('.todo-row')].map((r) => r.dataset.id);
+      const fromIdx = items.indexOf(draggedId);
+      const toIdx = items.indexOf(targetRow.dataset.id);
+      if (fromIdx < 0 || toIdx < 0) return;
+      items.splice(fromIdx, 1);
+      items.splice(toIdx, 0, draggedId);
+      items.forEach((id, i) => {
+        const t = state.todos.find((x) => x.id === id);
+        if (t) t.order = base + i;
+      });
+      saveState();
+      renderTaken();
+    });
+  });
+  el.querySelectorAll('[data-nav]').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      switchTab(a.dataset.nav);
+    });
+  });
+}
+
+function openTodoDialog(projectId, editId = null) {
+  const todo = editId ? state.todos.find((t) => t.id === editId) : null;
+  const dialog = document.getElementById('todo-dialog');
+  const titleEl = document.getElementById('todo-dialog-title');
+  const content = document.getElementById('todo-dialog-content');
+  if (!dialog || !content) return;
+  titleEl.textContent = todo ? 'Taak bewerken' : 'Nieuwe taak';
+  const selectedProjectId = projectId || todo?.projectId || state.projects[0]?.id || '';
+  const estimateVal = todo?.estimate ?? '';
+  content.innerHTML = `
+    <div class="form-field">
+      <md-outlined-select id="todo-project" label="Project" value="${escapeHtml(selectedProjectId)}" menu-positioning="popover" style="width:100%;">
+        ${state.projects.map((p) => `<md-select-option value="${p.id}"><div slot="headline">${escapeHtml(p.name)}</div><div slot="supporting-text">${escapeHtml(p.client || '')}</div></md-select-option>`).join('')}
+      </md-outlined-select>
+    </div>
+    <div class="form-field">
+      <md-outlined-text-field id="todo-title" label="Taak" value="${todo ? escapeHtml(todo.title) : ''}" style="width:100%;"></md-outlined-text-field>
+    </div>
+    <div class="form-field">
+      <md-outlined-select id="todo-estimate" label="Schatting (snel te doen?)" value="${escapeHtml(estimateVal)}" menu-positioning="popover" style="width:100%;">
+        ${ESTIMATE_OPTIONS.map((o) => `<md-select-option value="${o.value}"><div slot="headline">${escapeHtml(o.label)}</div></md-select-option>`).join('')}
+      </md-outlined-select>
+    </div>
+    <div class="form-field">
+      <md-outlined-text-field id="todo-due" label="Deadline (optioneel)" type="date" value="${todo?.dueDate || ''}" style="width:100%;"></md-outlined-text-field>
+    </div>
+  `;
+  dialog.show();
+  dialog.dataset.editId = editId || '';
+  dialog.dataset.projectId = selectedProjectId;
+  setTimeout(() => content.querySelector('#todo-title')?.focus(), 50);
+}
+
+function saveTodo() {
+  const dialog = document.getElementById('todo-dialog');
+  const content = document.getElementById('todo-dialog-content');
+  const titleInput = content?.querySelector('#todo-title');
+  const projectSelect = content?.querySelector('#todo-project');
+  const estimateSelect = content?.querySelector('#todo-estimate');
+  const dueInput = content?.querySelector('#todo-due');
+  const title = (titleInput?.value ?? titleInput?.querySelector?.('input')?.value ?? '').trim();
+  if (!title) {
+    showSnackbar('Vul een taak in');
+    return;
+  }
+  const projectId = projectSelect?.value || dialog?.dataset?.projectId || state.projects[0]?.id;
+  const dueDate = dueInput?.value?.trim() || null;
+  const estimate = (estimateSelect?.value ?? '').trim() || null;
+  const editId = dialog?.dataset?.editId;
+
+  if (editId) {
+    const idx = state.todos.findIndex((t) => t.id === editId);
+    if (idx >= 0) {
+      state.todos[idx] = { ...state.todos[idx], title, projectId, dueDate, estimate };
+    }
+  } else {
+    state.todos.push({
+      id: uid(),
+      projectId,
+      title,
+      dueDate,
+      estimate,
+      done: false,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  saveState();
+  dialog?.close();
+  renderTaken();
+  showSnackbar(editId ? 'Taak bijgewerkt' : 'Taak toegevoegd');
+}
+
+function toggleTodo(id) {
+  const t = state.todos.find((x) => x.id === id);
+  if (!t) return;
+  t.done = !t.done;
+  saveState();
+  renderTaken();
+  showSnackbar(t.done ? 'Afgerond' : 'Heropend');
 }
 
 // ─── Facturen ─────────────────────────────────────────────────────────────
@@ -2190,7 +2331,6 @@ function calcInvoiceTotal() {
       }, 0);
     } else if (p.type === 'fixed') total += p.budget || 0;
     else if (p.type === 'retainer') total += p.rate || 0;
-    else if (p.type === 'retainer_hours') total += retainerHoursAmount(p);
     else if (p.type === 'retainer_hours') total += retainerHoursAmount(p);
   });
   return total;
@@ -2341,6 +2481,7 @@ function openConfirmDeleteDialog(type, id, label) {
     const p = e && state.projects.find((x) => x.id === e.projectId);
     lbl = p ? `${p.name} – ${formatDate(e.date)}` : 'deze urenregel';
   }
+  if (!lbl && type === 'todo') lbl = state.todos.find((t) => t.id === id)?.title;
   const msg = document.getElementById('confirm-delete-message');
   if (msg) msg.textContent = `Weet je zeker dat je "${escapeHtml(lbl || 'dit item')}" wilt verwijderen?`;
   document.getElementById('confirm-delete-dialog')?.show();
@@ -2391,6 +2532,12 @@ function executePendingDelete() {
     saveState();
     renderUren();
     renderDashboard();
+  } else if (type === 'todo') {
+    const item = state.todos.find((t) => t.id === id);
+    if (item) undoFn = () => { state.todos.push(item); saveState(); renderTaken(); };
+    state.todos = state.todos.filter((t) => t.id !== id);
+    saveState();
+    renderTaken();
   }
   state.pendingDelete = null;
   showSnackbar('Verwijderd', undoFn ? { undo: undoFn } : {});
@@ -2881,7 +3028,7 @@ function openInvoiceCreateDialog() {
   const { clientGroupMap, clientNames, billable } = getClientGroupMap();
   const firstClient = clientNames[0] || '';
   const clientProjects = clientGroupMap[firstClient] || [];
-  state.invoiceForm = { client: firstClient, date: today(), dueDate: addDays(today(), state.settings.company?.paymentDays || 30), notes: '' };
+  state.invoiceForm = { client: firstClient, date: today(), dueDate: addDays(today(), state.settings.company?.paymentDays ?? DEFAULT_INVOICE_DUE_DAYS), notes: '' };
   state.selectedProjects = clientProjects.map((p) => p.id);
   state.selectedEntries = [];
   renderInvoiceCreateContent();
@@ -3018,7 +3165,7 @@ function createInvoice() {
   }
   const content = document.getElementById('invoice-create-content');
   state.invoiceForm.date = content.querySelector('#invoice-date')?.value || state.invoiceForm.date;
-  const paymentDays = state.settings.company?.paymentDays ?? 30;
+  const paymentDays = state.settings.company?.paymentDays ?? DEFAULT_INVOICE_DUE_DAYS;
   state.invoiceForm.dueDate = addDays(state.invoiceForm.date, paymentDays);
   state.invoiceForm.notes = content.querySelector('#invoice-notes')?.value || '';
   const invId = uid();
@@ -3207,8 +3354,8 @@ function printInvoicePdf() {
 }
 
 // ─── Tab & Init ───────────────────────────────────────────────────────────
-const TAB_IDS = ['dash', 'projects', 'uren', 'invoices', 'clients', 'settings'];
-const TAB_LABELS = { dash: 'Dashboard', projects: 'Projecten', uren: 'Uren', invoices: 'Facturen', clients: 'Klanten', settings: 'Instellingen' };
+const TAB_IDS = ['dash', 'uren', 'invoices', 'clients', 'projects', 'settings', 'taken'];
+const TAB_LABELS = { dash: 'Dashboard', uren: 'Uren', invoices: 'Facturen', clients: 'Klanten', projects: 'Projecten', settings: 'Instellingen', taken: 'Taken' };
 
 function getTabFromHash() {
   const hash = (window.location.hash || '').replace(/^#/, '');
@@ -3247,6 +3394,7 @@ function switchTab(tabId) {
   else if (tabId === 'invoices') renderInvoices();
   else if (tabId === 'clients') renderClients();
   else if (tabId === 'settings') renderSettings();
+  else if (tabId === 'taken') renderTaken();
   const fabWrap = document.getElementById('fab-menu-wrap');
   if (fabWrap) fabWrap.style.display = (state.clients.length > 0 || state.projects.length > 0) ? 'flex' : 'none';
   updateTimerHeader();
@@ -3261,9 +3409,9 @@ function init() {
   if (window.__firebaseUser && !window.__initialData) saveState();
   if (state.timers?.length > 0) startTimerTick();
   updateTimerHeader();
-  applyDarkMode(getEffectiveDarkMode());
+  applyDarkMode(getEffectiveDarkMode(state.settings));
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (typeof state.settings.darkMode !== 'boolean') applyDarkMode(getEffectiveDarkMode());
+    if (typeof state.settings.darkMode !== 'boolean') applyDarkMode(getEffectiveDarkMode(state.settings));
   });
   document.getElementById('header-timer')?.addEventListener('click', () => switchTab('uren'));
   document.getElementById('hamburger-btn')?.addEventListener('click', () => {
@@ -3300,7 +3448,7 @@ function init() {
         document.getElementById('app-shell').style.display = 'none';
         const errEl = document.getElementById('login-error');
         try {
-          const fb = window.__firebase || (await import('./firebase-app.js'));
+          const fb = window.__firebase || (await import('./shared/firebase-app.js'));
           const cfg = window.firebaseConfig;
           if (!fb || !cfg?.apiKey) throw new Error('Firebase niet geconfigureerd');
           if (!fb.getFirebaseAuth?.()) fb.initFirebase(cfg);
@@ -3351,6 +3499,9 @@ function init() {
       const { clientNames } = getClientGroupMap();
       if (clientNames.length > 0) openInvoiceCreateDialog();
       else { showSnackbar('Voeg eerst een klant en project toe'); switchTab('clients'); }
+    } else if (action === 'new-todo') {
+      if (state.projects.length > 0) openTodoDialog(state.projectFilter !== 'all' ? state.projectFilter : state.projects[0]?.id);
+      else { showSnackbar('Voeg eerst een project toe'); switchTab('projects'); }
     }
   };
   fabMain?.addEventListener('click', (e) => {
@@ -3372,6 +3523,8 @@ function init() {
   });
   document.getElementById('btn-quick-log-save')?.addEventListener('click', saveQuickLog);
   document.getElementById('btn-quick-log-close')?.addEventListener('click', () => document.getElementById('quick-log-dialog').close());
+  document.getElementById('btn-todo-save')?.addEventListener('click', saveTodo);
+  document.getElementById('btn-todo-close')?.addEventListener('click', () => document.getElementById('todo-dialog').close());
   document.getElementById('btn-project-save')?.addEventListener('click', saveProject);
   document.getElementById('btn-project-close')?.addEventListener('click', () => document.getElementById('project-dialog').close());
   document.getElementById('btn-client-save')?.addEventListener('click', saveClient);
@@ -3446,6 +3599,7 @@ function init() {
         else if (id === 'project-dialog') saveProject();
         else if (id === 'client-dialog') saveClient();
         else if (id === 'invoice-create-dialog') createInvoice();
+        else if (id === 'todo-dialog') saveTodo();
       }
       return;
     }
@@ -3464,10 +3618,31 @@ function init() {
     }
   });
   window.addEventListener('hashchange', () => switchTab(getTabFromHash()));
-  const minSkeletonMs = 400;
+  const minSkeletonMs = MIN_SKELETON_MS;
   const elapsed = Date.now() - loadStart;
   const delay = Math.max(0, minSkeletonMs - elapsed);
-  setTimeout(() => switchTab(getTabFromHash()), delay);
+  const doSwitch = () => {
+    try {
+      switchTab(getTabFromHash());
+    } catch (e) {
+      console.error('switchTab error:', e);
+      const loading = document.getElementById('loading');
+      if (loading) {
+        loading.classList.remove('active');
+        loading.style.cssText = 'display:none !important;';
+        const panel = document.getElementById('panel-dash');
+        if (panel) { panel.classList.add('active'); panel.style.display = 'block'; renderDashboard(); }
+      }
+    }
+  };
+  setTimeout(doSwitch, delay);
+  setTimeout(() => {
+    const loading = document.getElementById('loading');
+    if (loading?.classList.contains('active') || getComputedStyle(loading).display !== 'none') {
+      console.warn('[Init] Loading nog zichtbaar na 2s – forceer switchTab');
+      doSwitch();
+    }
+  }, 2000);
 }
 
 (function() {
@@ -3478,4 +3653,20 @@ function init() {
     const loading = document.getElementById('loading');
     if (loading) loading.innerHTML = '<p style="color:var(--md-sys-color-error);">Fout: ' + String(err.message) + '</p>';
   }
+  setTimeout(() => {
+    const loading = document.getElementById('loading');
+    if (!loading) return;
+    const style = getComputedStyle(loading);
+    if (style.display !== 'none' && style.visibility !== 'hidden') {
+      console.warn('[Init] Loading nog zichtbaar na 2s – forceer weergave dashboard');
+      loading.classList.remove('active');
+      loading.style.cssText = 'display:none !important;';
+      const panel = document.getElementById('panel-dash');
+      if (panel) {
+        panel.classList.add('active');
+        panel.style.display = 'block';
+        if (typeof renderDashboard === 'function') renderDashboard();
+      }
+    }
+  }, 2000);
 })();
