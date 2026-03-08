@@ -410,6 +410,12 @@ function loadState() {
     state.clients = initial.clients || [];
     state.todos = initial.todos || [];
     state.labels = initial.labels && initial.labels.length > 0 ? initial.labels : DEFAULT_LABELS;
+    state.lastUsedProjectIds = Array.isArray(initial.lastUsedProjectIds) && initial.lastUsedProjectIds.length > 0 ? initial.lastUsedProjectIds : [];
+    if (state.lastUsedProjectIds.length === 0 && state.entries?.length > 0) {
+      const recent = [...state.entries].sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
+      const seen = new Set();
+      state.lastUsedProjectIds = recent.map((e) => e.projectId).filter((id) => id && !seen.has(id) && seen.add(id)).slice(0, 50);
+    }
     const t = initial.timers;
     state.timers = Array.isArray(t) ? t.filter((x) => x?.startTime && x?.projectId) : [];
     if (initial.settings) {
@@ -442,6 +448,34 @@ function loadState() {
     state.settings = { ...state.settings, ...s };
     if (s.company) state.settings.company = { ...state.settings.company, ...s.company };
   }
+  const lup = storageLoad(STORAGE_KEYS.lastUsedProjectIds);
+  state.lastUsedProjectIds = Array.isArray(lup) && lup.length > 0 ? lup : [];
+  if (state.lastUsedProjectIds.length === 0 && state.entries?.length > 0) {
+    const recent = [...state.entries].sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
+    const seen = new Set();
+    state.lastUsedProjectIds = recent.map((e) => e.projectId).filter((id) => id && !seen.has(id) && seen.add(id)).slice(0, 50);
+  }
+}
+
+/** Registreert een project als recent gebruikt (voor slimme projectlijst) */
+function recordProjectUsed(projectId) {
+  if (!projectId) return;
+  const ids = state.lastUsedProjectIds || [];
+  const filtered = ids.filter((id) => id !== projectId);
+  state.lastUsedProjectIds = [projectId, ...filtered].slice(0, 50);
+}
+
+/** Sorteert projecten: laatst gebruikte eerst, daarna de rest */
+function sortProjectsByLastUsed(projects) {
+  const order = state.lastUsedProjectIds || [];
+  return [...projects].sort((a, b) => {
+    const ai = order.indexOf(a.id);
+    const bi = order.indexOf(b.id);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return 0;
+  });
 }
 
 /** Verwijdert undefined waarden – Firestore accepteert geen undefined */
@@ -468,6 +502,7 @@ function saveState() {
     storageSave(STORAGE_KEYS.todos, state.todos);
     storageSave(STORAGE_KEYS.settings, state.settings);
     storageSave(STORAGE_KEYS.timer, state.timers);
+    storageSave(STORAGE_KEYS.lastUsedProjectIds, state.lastUsedProjectIds || []);
   }
   const fb = window.__firebase;
   if (user && fb?.firebaseSaveUserData) {
@@ -480,6 +515,7 @@ function saveState() {
       todos: state.todos,
       settings: state.settings,
       timers: state.timers,
+      lastUsedProjectIds: state.lastUsedProjectIds || [],
     });
     fb.firebaseSaveUserData(user.uid, data).catch((e) => {
       console.error('[Firebase] Opslaan mislukt:', e?.message || e);
@@ -534,6 +570,7 @@ function stopTimer(timerId) {
     showSnackbar('Te kort om op te slaan (min. 1u)');
     return;
   }
+  recordProjectUsed(timer.projectId);
   const entryId = uid();
   state.entries.push({
     id: entryId,
@@ -1036,7 +1073,7 @@ function renderUren() {
   });
   const filtered = state.entryFilter === 'open' ? sorted.filter((e) => !e.invoiceId && !e.notBillable) : sorted;
   const isMobileView = window.innerWidth < BREAKPOINT_SMALL;
-  const activeProjects = projects.filter((p) => p.status === 'active');
+  const activeProjects = sortProjectsByLastUsed(projects.filter((p) => p.status === 'active'));
   const runningTimers = state.timers || [];
   const busyProjectIds = new Set(runningTimers.map((t) => t.projectId));
   const availableProjects = activeProjects.filter((p) => !busyProjectIds.has(p.id));
@@ -1980,7 +2017,10 @@ function renderTaken() {
     if (meta.isOld) badges.push('<span class="badge" style="background:var(--md-sys-color-error-container);color:var(--md-sys-color-on-error-container);">Lang open</span>');
     const dragHandle = draggable ? `<md-icon-button class="todo-drag-handle" data-action="drag-handle" aria-label="Versleep om te sorteren" style="cursor:grab;"><md-icon>drag_indicator</md-icon></md-icon-button>` : '';
     const metaHtml = showProject && meta.project ? `
-      <span class="todo-row-meta">${escapeHtml(meta.project.client || '—')} · ${escapeHtml(meta.project.name)}</span>
+      <div class="todo-row-meta-stack">
+        <div class="todo-row-client">${escapeHtml(meta.project.client || '—')}</div>
+        <div class="todo-row-project">${escapeHtml(meta.project.name)}</div>
+      </div>
     ` : '';
     return `
       <li class="list-item todo-row" data-id="${t.id}" ${draggable ? 'draggable="true"' : ''} style="margin-bottom:8px;padding:10px 12px;border-radius:8px;background:var(--md-sys-color-surface-container-high);">
@@ -1990,11 +2030,11 @@ function renderTaken() {
             <md-checkbox data-action="toggle-todo" data-id="${t.id}" ${t.done ? 'checked' : ''} aria-label="Afgerond"></md-checkbox>
             <div class="todo-row-content" style="flex:1;min-width:0;">
               <div class="todo-row-title" style="${t.done ? 'text-decoration:line-through;opacity:0.7;' : ''}">${escapeHtml(t.title)}</div>
+              ${metaHtml}
               ${badges.length > 0 || t.dueDate ? `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">${badges.join('')}${t.dueDate ? `<span style="font-size:11px;color:var(--md-sys-color-on-surface-variant);">${formatDate(t.dueDate)}</span>` : ''}</div>` : ''}
             </div>
           </div>
           <div class="todo-row-right" style="flex-shrink:0;">
-            ${metaHtml}
             <div class="todo-menu-wrap" style="position:relative;">
               <md-icon-button id="todo-menu-${t.id}" data-action="todo-menu" data-id="${t.id}" data-project-id="${t.projectId}" aria-label="Meer opties"><md-icon>more_vert</md-icon></md-icon-button>
               <md-menu class="todo-row-menu" anchor="todo-menu-${t.id}">
@@ -2154,6 +2194,30 @@ function renderTaken() {
     const section = ul.dataset.section;
     const base = section === 'quick' ? ORDER_QUICK_BASE : ORDER_REST_BASE;
     let draggedId = null;
+    let touchDragActive = false;
+
+    const performReorder = (targetRow) => {
+      if (!targetRow || !draggedId || targetRow.dataset.id === draggedId) return;
+      ul.querySelectorAll('.todo-row').forEach((r) => r.classList.remove('todo-drag-over'));
+      const items = [...ul.querySelectorAll('.todo-row')].map((r) => r.dataset.id);
+      const fromIdx = items.indexOf(draggedId);
+      const toIdx = items.indexOf(targetRow.dataset.id);
+      if (fromIdx < 0 || toIdx < 0) return;
+      items.splice(fromIdx, 1);
+      items.splice(toIdx, 0, draggedId);
+      items.forEach((id, i) => {
+        const t = state.todos.find((x) => x.id === id);
+        if (t) t.order = base + i;
+      });
+      saveState();
+      renderTaken();
+    };
+
+    const getRowAtPoint = (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      return el?.closest('.todo-row');
+    };
+
     ul.addEventListener('dragstart', (e) => {
       const row = e.target.closest('.todo-row');
       if (!row) return;
@@ -2179,22 +2243,48 @@ function renderTaken() {
     });
     ul.addEventListener('drop', (e) => {
       e.preventDefault();
-      const targetRow = e.target.closest('.todo-row');
-      if (!targetRow || !draggedId || targetRow.dataset.id === draggedId) return;
-      ul.querySelectorAll('.todo-row').forEach((r) => r.classList.remove('todo-drag-over'));
-      const items = [...ul.querySelectorAll('.todo-row')].map((r) => r.dataset.id);
-      const fromIdx = items.indexOf(draggedId);
-      const toIdx = items.indexOf(targetRow.dataset.id);
-      if (fromIdx < 0 || toIdx < 0) return;
-      items.splice(fromIdx, 1);
-      items.splice(toIdx, 0, draggedId);
-      items.forEach((id, i) => {
-        const t = state.todos.find((x) => x.id === id);
-        if (t) t.order = base + i;
-      });
-      saveState();
-      renderTaken();
+      performReorder(e.target.closest('.todo-row'));
+      draggedId = null;
     });
+
+    ul.querySelectorAll('.todo-drag-handle').forEach((handle) => {
+      handle.addEventListener('touchstart', (e) => {
+        const row = e.target.closest('.todo-row');
+        if (!row || !ul.contains(row)) return;
+        touchDragActive = true;
+        draggedId = row.dataset.id;
+        row.classList.add('todo-dragging');
+      }, { passive: true });
+    });
+
+    ul.addEventListener('touchstart', (e) => {
+      if (!e.target.closest('.todo-drag-handle')) return;
+      document.addEventListener('touchmove', handleTouchMove, { capture: true, passive: false });
+      document.addEventListener('touchend', handleTouchEnd, { capture: true });
+      document.addEventListener('touchcancel', handleTouchEnd, { capture: true });
+    }, { passive: true });
+
+    const handleTouchMove = (e) => {
+      if (!touchDragActive || !draggedId) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      ul.querySelectorAll('.todo-row').forEach((r) => r.classList.remove('todo-drag-over'));
+      const row = getRowAtPoint(t.clientX, t.clientY);
+      if (row && row.dataset.id !== draggedId && ul.contains(row)) row.classList.add('todo-drag-over');
+    };
+    const handleTouchEnd = (e) => {
+      if (!touchDragActive || !draggedId) return;
+      touchDragActive = false;
+      const t = e.changedTouches?.[0];
+      const row = t ? getRowAtPoint(t.clientX, t.clientY) : null;
+      const targetRow = row && ul.contains(row) ? row : null;
+      ul.querySelector('.todo-dragging')?.classList.remove('todo-dragging');
+      performReorder(targetRow);
+      draggedId = null;
+      document.removeEventListener('touchmove', handleTouchMove, { capture: true });
+      document.removeEventListener('touchend', handleTouchEnd, { capture: true });
+      document.removeEventListener('touchcancel', handleTouchEnd, { capture: true });
+    };
   });
   el.querySelectorAll('[data-nav]').forEach((a) => {
     a.addEventListener('click', (e) => {
@@ -2544,7 +2634,7 @@ function executePendingDelete() {
 }
 
 function openQuickLogDialog(editEntryId = null) {
-  const activeProjects = state.projects.filter((p) => p.status === 'active');
+  const activeProjects = sortProjectsByLastUsed(state.projects.filter((p) => p.status === 'active'));
   const members = state.settings?.members || [];
   const entry = editEntryId ? state.entries.find((e) => e.id === editEntryId) : null;
   state.editingEntryId = editEntryId && entry ? editEntryId : null;
@@ -2709,6 +2799,7 @@ function saveQuickLog() {
         personId: personId || undefined,
       };
     }
+    recordProjectUsed(form.projectId);
     state.editingEntryId = null;
     saveState();
     document.getElementById('quick-log-dialog').close();
@@ -2716,6 +2807,7 @@ function saveQuickLog() {
     renderDashboard();
     showSnackbar('Uren bijgewerkt');
   } else {
+    recordProjectUsed(form.projectId);
     const entryId = uid();
     state.entries.push({
       ...rest,

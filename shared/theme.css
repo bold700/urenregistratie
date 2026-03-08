@@ -687,7 +687,7 @@ html { scrollbar-gutter: stable; }
     .todo-row md-checkbox {
       flex-shrink: 0;
     }
-    .todo-row .todo-drag-handle { cursor: grab !important; }
+    .todo-row .todo-drag-handle { cursor: grab !important; touch-action: none; -webkit-user-select: none; user-select: none; }
     .todo-row .todo-drag-handle:active { cursor: grabbing !important; }
     .todo-row-inner {
       display: flex;
@@ -724,6 +724,18 @@ html { scrollbar-gutter: stable; }
       line-height: 1.4;
       white-space: nowrap;
       text-align: right;
+    }
+    .todo-row-meta-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      margin-top: 2px;
+    }
+    .todo-row-client,
+    .todo-row-project {
+      font-size: 12px;
+      color: var(--md-sys-color-on-surface-variant);
+      line-height: 1.4;
     }
     .list-item-main { flex: 1; min-width: 0; }
     .list-item-actions { display: flex; gap: 6px; flex-shrink: 0; }

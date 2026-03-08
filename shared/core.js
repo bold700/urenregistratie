@@ -23,6 +23,7 @@ export const STORAGE_KEYS = {
   labels: 'bold700:labels',
   timer: 'bold700:timer',
   todos: 'bold700:todos',
+  lastUsedProjectIds: 'bold700:lastUsedProjectIds',
   legacy: 'urenregistratie-data',
   legacyCapacity: 'urenregistratie-capacity',
 };
@@ -293,6 +294,7 @@ export function createInitialState() {
     todoFilter: 'open',
     projectFilter: 'all',
     takenViewMode: 'mijn-werk',
+    lastUsedProjectIds: [],
   };
 }
 
