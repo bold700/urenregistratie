@@ -1,0 +1,11 @@
+{
+  "name": "urenregistratie",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/generate-firebase-config.mjs",
+    "env:generate": "node scripts/generate-firebase-config.mjs"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.7"
+  }
+}

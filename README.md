@@ -17,13 +17,21 @@ Eenvoudige project- en urenadministratie voor jezelf: bijhouden waar je uren naa
 
 Data wordt lokaal in je browser opgeslagen (localStorage). Geen server of database nodig.
 
+### Firebase-config (sync)
+
+1. `cp .env.example .env` en vul je Firebase-waarden in (of gebruik bestaande `.env`).
+2. `npm install` en daarna `npm run env:generate` – dit schrijft `firebase-config.js` vanuit environment variables (geen secrets in git).
+
+Zonder Node: kopieer `firebase-config.example.js` naar `firebase-config.js` en vul handmatig in (alleen voor lokaal testen).
+
 **Optie 1 – Lokaal openen (kan beperkt werken door CORS/imports):**  
-Open `index.html` in je browser.
+Open `index.html` in je browser (na bovenstaande config-stap).
 
 **Optie 2 – Met een simpele server (aanbevolen):**
 
 ```bash
 cd urenregistratie
+npm install && npm run env:generate
 python3 -m http.server 8765
 ```
 
@@ -36,7 +44,7 @@ Ga daarna in je browser naar: **http://localhost:8765/**
 - `shared/core.js` – Gedeelde kern: constants, utils, storage, migratie.
 - `shared/theme.css` – Material-thema (groen palet), gedeeld door alle apps.
 - `shared/firebase-app.js` – Firebase Auth + Firestore, gedeeld door alle apps.
-- `firebase-config.js` – Jouw Firebase-config (niet in git; kopieer van `firebase-config.example.js`).
+- `firebase-config.js` – Gegenereerd uit `.env` / Vercel env vars (niet in git); zie `.env.example`.
 - `README.md` – Deze uitleg.
 
 ### Navigatiestructuur

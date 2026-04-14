@@ -6,3 +6,10 @@ Thumbs.db
 *.swp
 *.swo
 .vscode/
+
+# Secrets / gegenereerde Firebase-config (waarden uit .env of Vercel)
+.env
+firebase-config.js
+
+# Node
+node_modules/
